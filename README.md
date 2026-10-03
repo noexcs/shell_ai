@@ -9,7 +9,17 @@
 
 ## 安装
 
-**方式一：单文件二进制（推荐，不需要 Node）**
+**方式一：npm（约 140KB，无运行时依赖）**
+
+```sh
+npm install -g @noexcs/ai-shell
+ai-shell install --write    # 写 ~/.zshrc（插件直接用包内的 plugin/zsh）
+```
+
+包内是一个 443KB 的打包 CLI（AI SDK 已 bundle，`node_modules` 里不加任何运行时依赖），
+所以到用户机器上是"一个文件 + 6 个 .zsh"，没有 60MB 二进制，也没有几十 MB 依赖树。
+
+**方式二：单文件二进制（不需要 Node）**
 
 ```sh
 npm run build            # 产出 dist/ai-shell（自包含，含 zsh 插件；跨平台用 scripts/build.sh bun-linux-x64）

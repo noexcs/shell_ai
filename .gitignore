@@ -1,5 +1,6 @@
 node_modules/
 dist/
+bin/
 .ai-shell-e2e/
 sandbox/.zsh_history
 sandbox/.zsh_sessions/
@@ -7,3 +8,4 @@ sandbox/.zsh_sessions/
 *.log
 __pycache__/
 *.pyc
+*.tgz

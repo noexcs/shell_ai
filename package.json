@@ -1,24 +1,32 @@
 {
-  "name": "ai-shell",
+  "name": "@noexcs/ai-shell",
   "version": "0.1.0",
-  "private": true,
+  "description": "zsh 之上的 AI fallback 层：命令不存在/执行失败/自然语言时给出建议命令并填进真 shell buffer，AI 从不执行命令",
   "type": "module",
-  "description": "AI Shell — AI fallback layer on top of zsh (suggests commands; never executes them)",
+  "license": "UNLICENSED",
   "bin": {
-    "ai-shell": "./runtime/main.ts"
+    "ai-shell": "bin/ai-shell.js"
+  },
+  "files": [
+    "bin/",
+    "plugin/",
+    "README.md",
+    "docs/superpowers/specs/"
+  ],
+  "engines": {
+    "node": ">=20"
   },
   "scripts": {
     "gen": "node scripts/gen-plugin.ts",
     "build": "npm run gen && ./scripts/build.sh",
+    "build:npm": "npm run gen && ./scripts/build-npm.sh",
+    "prepack": "npm run build:npm",
     "sandbox": "./scripts/sandbox.sh",
     "test:unit": "node --test test/unit/",
     "test:e2e": "python3 test/e2e.py",
     "test": "npm run test:unit && npm run test:e2e"
   },
-  "engines": {
-    "node": ">=23.6"
-  },
-  "dependencies": {
+  "devDependencies": {
     "@ai-sdk/openai-compatible": "^3.0.62",
     "ai": "^7.0.127",
     "zod": "^4.6.5"
