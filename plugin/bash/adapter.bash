@@ -71,17 +71,14 @@ _ai_shell_adapter_command_exists() { command -v -- "$1" >/dev/null 2>&1; }
 # bash enables this by default, so suggestions can carry their rationale inline.
 _ai_shell_adapter_supports_comment() { shopt -q interactive_comments; }
 
-_ai_shell_adapter_notice() {
-  [[ -t 1 ]] || return 0
-  printf '\033[2m%s\033[0m\n' "$1"
-}
+_ai_shell_adapter_delivery() { printf 'enter'; }
 
 # Arm the one-shot Enter handler.  `bind` only affects the current shell, so this
-# must run in the prompt hook (never inside the command-not-found subshell).
+# must run in the prompt hook (never inside the command-not-found subshell).  The
+# "press Enter" instruction is printed by the runtime inside the panel.
 _ai_shell_adapter_pending_ready() {
   [[ $- == *i* ]] || return 0
   bind -x '"\C-m": _ai_shell_bash_accept' 2>/dev/null || return 0
-  _ai_shell_adapter_notice '（bash 无法自动预填：按 Enter 填入建议，再按 Enter 执行）'
 }
 
 _ai_shell_bash_accept() {

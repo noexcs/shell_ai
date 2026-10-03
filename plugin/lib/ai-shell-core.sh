@@ -11,7 +11,7 @@
 #   _ai_shell_adapter_command_exists <word> 0 = the shell can resolve it
 #   _ai_shell_adapter_supports_comment      0 = '#' starts a comment here
 #   _ai_shell_adapter_pending_ready <cmd>   the shell may deliver a suggestion
-#   _ai_shell_adapter_notice <text>         one dim hint line (may be a no-op)
+#   _ai_shell_adapter_delivery             "prefill" or "enter" (how it is delivered)
 #   _ai_shell_adapter_doctor                print shell-side facts
 #
 # Contract with the runtime (unchanged across shells): 11 NUL-separated fields
@@ -123,10 +123,11 @@ _ai_shell_ask() {
   start_ms=$(_ai_shell_now_ms)
   rm -f -- "$AI_SHELL_PENDING"
 
-  local -a extra=()
+  local extra=()
   [[ -n ${AI_SHELL_MODEL:-} ]] && extra+=(--model "$AI_SHELL_MODEL")
   [[ -n ${AI_SHELL_TIMEOUT_MS:-} ]] && extra+=(--timeout "$AI_SHELL_TIMEOUT_MS")
   if _ai_shell_adapter_supports_comment; then extra+=(--comment); fi
+  extra+=(--delivery "$(_ai_shell_adapter_delivery)")
 
   _ai_shell_context "$@" | "${AI_SHELL_CMD[@]}" ask --command-out "$AI_SHELL_PENDING" "${extra[@]}"
   local rc=$?

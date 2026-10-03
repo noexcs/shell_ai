@@ -122,10 +122,13 @@ async function ask(args: string[]): Promise<number> {
   }
 
   const commandOut = takeFlag(args, "--command-out") ?? ctx.commandOut;
+  // How the shell can deliver a suggestion: zsh pre-fills the next buffer, bash
+  // can only hand it over on the next Enter.
+  const delivery = takeFlag(args, "--delivery") ?? "prefill";
   const startedAt = performance.now();
   const latency = () => `${((performance.now() - startedAt) / 1000).toFixed(1)}s`;
   const verboseTail = () => {
-    if (cfg.verbose) renderer.notice(`${cfg.model} · ${latency()}`);
+    if (cfg.verbose) renderer.footer(`${cfg.model} · ${latency()}`);
   };
 
   try {
@@ -145,11 +148,9 @@ async function ask(args: string[]): Promise<number> {
       ? attachExplanation(suggestion.command, suggestion.explanation)
       : null;
     const finalCommand = withComment ?? suggestion.command;
-    renderer.suggestion(
-      finalCommand,
-      withComment === null ? suggestion.explanation : "",
-      cfg.verbose ? `${cfg.model} · ${latency()}` : "",
-    );
+    renderer.suggestion(finalCommand, withComment === null ? suggestion.explanation : "");
+    if (delivery === "enter") renderer.hint("按 Enter 填入建议，再按 Enter 执行");
+    verboseTail();
     renderer.end();
     writeAtomically(commandOut, finalCommand);
     return EXIT_OK;

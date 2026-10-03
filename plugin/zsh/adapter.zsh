@@ -59,7 +59,7 @@ _ai_shell_adapter_supports_comment() { [[ -o interactive_comments ]] }
 # zsh pre-fills the next buffer itself (zle-line-init), so nothing to arm here.
 _ai_shell_adapter_pending_ready() { return 0 }
 
-_ai_shell_adapter_notice() { printf '%s\n' "$1" }
+_ai_shell_adapter_delivery() { printf 'prefill'; }
 
 _ai_shell_adapter_doctor() {
   if [[ ${widgets[accept-line]-} == user:_ai_shell_zsh_accept_line ]]; then

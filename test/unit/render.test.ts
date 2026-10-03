@@ -54,7 +54,7 @@ test("multi-line suggestions keep every line", () => {
 test("blank lines inside the panel keep the bar column continuous", () => {
   const { renderer, output } = capture(false);
   renderer.text("第一段\n\n第二段\n");
-  renderer.suggestion("docker ps", "", "");
+  renderer.suggestion("docker ps", "");
   renderer.end();
   assert.deepEqual(output().split("\n"), [
     "",
@@ -70,9 +70,35 @@ test("blank lines inside the panel keep the bar column continuous", () => {
 
 test("the gap that ends the panel stays bare", () => {
   const { renderer, output } = capture(false);
-  renderer.suggestion("docker ps", "", "model · 1.0s");
+  renderer.suggestion("docker ps", "");
+  renderer.footer("model · 1.0s");
   renderer.end();
-  assert.ok(output().endsWith("1.0s\n\n"), "panel ends with one bare blank line");
+  assert.ok(output().endsWith("model · 1.0s\n\n"), "panel ends with one bare blank line");
+});
+
+test("leading blank lines in the prose are dropped", () => {
+  const { renderer, output } = capture(false);
+  renderer.text("\n\n解释在这里。\n");
+  renderer.suggestion("docker ps", "");
+  renderer.end();
+  assert.deepEqual(output().split("\n"), [
+    "",
+    "✦ AI — shell 助手",
+    "│ 解释在这里。",
+    "│ → docker ps",
+    "",
+    "",
+  ]);
+});
+
+test("a blank line between paragraphs keeps its bar", () => {
+  const { renderer, output } = capture(false);
+  renderer.text("第一段\n\n第二段\n");
+  renderer.suggestion("docker ps", "");
+  renderer.hint("按 Enter 填入");
+  renderer.end();
+  assert.ok(output().includes("│ 第一段\n│\n│ 第二段\n"));
+  assert.ok(output().includes("│ → docker ps\n│ 按 Enter 填入\n"));
 });
 
 test("explanation is dropped when the model already wrote prose", () => {

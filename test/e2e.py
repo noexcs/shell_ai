@@ -300,6 +300,10 @@ def scenario_a2(scenario: Scenario, session: ShellSession, mark: int) -> None:
     log = session.log()
     scenario.check("one command_not_found call", log.count("trigger=command_not_found") == 1)
     scenario.check("S3 did not run again", "trigger=non_zero_exit" not in log)
+    if session.shell == "bash":
+        scenario.check("accept hint is a panel line", "│ 按 Enter 填入建议" in text)
+    else:
+        scenario.check("no accept hint when the shell prefills", "按 Enter 填入建议" not in text)
 
 
 # --------------------------------------------------------------------------- A3

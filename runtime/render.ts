@@ -20,7 +20,11 @@ export interface Renderer {
   /** Dim one-line note (errors, "no suggestion"). */
   notice(text: string): void;
   /** `footer` is appended as the last dim line (model · latency). */
-  suggestion(command: string, explanation: string, footer?: string): void;
+  suggestion(command: string, explanation: string): void;
+  /** One barred instruction line (e.g. how to accept the suggestion). */
+  hint(text: string): void;
+  /** Barred dim line: model · latency. */
+  footer(text: string): void;
   /** Closes the panel with the single bare blank line that separates it from the
    *  prompt.  Called once per invocation, after every notice/suggestion. */
   end(): void;
@@ -99,6 +103,12 @@ export function createRenderer(out: NodeJS.WriteStream = process.stdout): Render
       if (delta === "") return;
       closeStatus();
       openPanel();
+      if (!streamedText) {
+        // Models often open with blank lines; they carry no information and just
+        // push the prose away from the header (user-reported).
+        delta = delta.replace(/^[\r\n]+/, "");
+        if (delta === "") return;
+      }
       streamedText = true;
       lineOpen = !delta.endsWith("\n");
       writeBarred(delta);
@@ -112,7 +122,7 @@ export function createRenderer(out: NodeJS.WriteStream = process.stdout): Render
       openPanel();
       writeBarred(`${text}\n`);
     },
-    suggestion(command, explanation, footer = "") {
+    suggestion(command, explanation) {
       closeStatus();
       openPanel();
       if (lineOpen) {
@@ -126,7 +136,24 @@ export function createRenderer(out: NodeJS.WriteStream = process.stdout): Render
       // tool's one-liner there is noise. Keep it only as a fallback for
       // tool-call-only answers.
       if (explanation !== "" && !streamedText) writeBarred(`${dim(explanation)}\n`);
-      if (footer !== "") writeBarred(`${dim(footer)}\n`);
+    },
+    hint(text) {
+      closeStatus();
+      openPanel();
+      if (lineOpen) {
+        writeBarred("\n");
+        lineOpen = false;
+      }
+      writeBarred(`${dim(text)}\n`);
+    },
+    footer(text) {
+      closeStatus();
+      openPanel();
+      if (lineOpen) {
+        writeBarred("\n");
+        lineOpen = false;
+      }
+      writeBarred(`${dim(text)}\n`);
     },
     end() {
       if (!panelOpen) return;
