@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.ai-shell-e2e/
+sandbox/.zsh_history
+sandbox/.zsh_sessions/
+.DS_Store
+*.log
+__pycache__/
+*.pyc

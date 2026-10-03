@@ -1,0 +1,26 @@
+{
+  "name": "ai-shell",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Shell — AI fallback layer on top of zsh (suggests commands; never executes them)",
+  "bin": {
+    "ai-shell": "./runtime/main.ts"
+  },
+  "scripts": {
+    "gen": "node scripts/gen-plugin.ts",
+    "build": "npm run gen && ./scripts/build.sh",
+    "sandbox": "./scripts/sandbox.sh",
+    "test:unit": "node --test test/unit/",
+    "test:e2e": "python3 test/e2e.py",
+    "test": "npm run test:unit && npm run test:e2e"
+  },
+  "engines": {
+    "node": ">=23.6"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.62",
+    "ai": "^7.0.127",
+    "zod": "^4.6.5"
+  }
+}
