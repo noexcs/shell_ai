@@ -54,9 +54,9 @@ export async function runAgent(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   const paintStatus = () =>
-    renderer.status(`✦ AI 正在分析… ${Math.floor((Date.now() - startedAt) / 1000)}s`);
+    renderer.status(`✦ AI 正在分析… ${Math.floor((performance.now() - startedAt) / 1000)}s`);
   // Start waiting feedback immediately: not every server streams reasoning
   // deltas, and a frozen shell with no output reads as a hang.
   let ticker: NodeJS.Timeout | undefined;

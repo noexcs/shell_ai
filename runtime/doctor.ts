@@ -31,17 +31,25 @@ function silentRenderer(): Renderer {
   return { status() {}, text() {}, notice() {}, suggestion() {} };
 }
 
+function userShell(): { name: "zsh" | "bash"; rc: string } {
+  const login = (process.env.SHELL ?? "").split("/").pop() ?? "";
+  // bash users have no ~/.zshrc; on a bash-only box the zsh check would silently
+  // report "未登记" for a plugin that is in fact installed.
+  if (login === "bash") return { name: "bash", rc: join(homedir(), ".bashrc") };
+  return { name: "zsh", rc: join(process.env.ZDOTDIR ?? homedir(), ".zshrc") };
+}
+
 async function shellReport(): Promise<string[]> {
-  const zshrc = join(process.env.ZDOTDIR ?? homedir(), ".zshrc");
+  const shell = userShell();
   const lines: string[] = [];
-  const installed = existsSync(zshrc) && readFileSync(zshrc, "utf8").includes("# >>> ai-shell >>>");
-  lines.push(`~/.zshrc 加载行：${installed ? "已登记" : "未登记（运行 ai-shell install --write）"}`);
+  const installed = existsSync(shell.rc) && readFileSync(shell.rc, "utf8").includes("# >>> ai-shell >>>");
+  lines.push(`${shell.rc.replace(homedir(), "~")} 加载行：${installed ? "已登记" : "未登记（运行 ai-shell install --write）"}`);
 
   try {
-    const { stdout } = await run("zsh", ["-ic", "ai-shell-doctor"], { timeout: 15000 });
+    const { stdout } = await run(shell.name, ["-ic", "ai-shell-doctor"], { timeout: 15000 });
     for (const line of stdout.split("\n")) if (line.trim() !== "") lines.push(line.trim());
   } catch {
-    lines.push("shell 侧自检：跳过（插件未在当前 zsh 配置里加载，或 ai-shell-doctor 不存在）");
+    lines.push(`shell 侧自检：跳过（${shell.name} 里未加载插件，或 ai-shell-doctor 不存在）`);
   }
   return lines;
 }
@@ -60,9 +68,9 @@ async function probeToolCalling(baseUrl: string, apiKey: string, model: string, 
     "/tmp/ai-shell-doctor-pending",
     "doctor",
   ]);
-  const started = Date.now();
+  const started = performance.now();
   const suggestion = await runAgent(context, silentRenderer(), { baseUrl, apiKey, model, timeoutMs });
-  return { ok: suggestion !== null, ms: Date.now() - started };
+  return { ok: suggestion !== null, ms: performance.now() - started };
 }
 
 export async function runDoctor(options: DoctorOptions): Promise<number> {

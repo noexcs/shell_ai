@@ -122,8 +122,8 @@ async function ask(args: string[]): Promise<number> {
   }
 
   const commandOut = takeFlag(args, "--command-out") ?? ctx.commandOut;
-  const startedAt = Date.now();
-  const latency = () => `${((Date.now() - startedAt) / 1000).toFixed(1)}s`;
+  const startedAt = performance.now();
+  const latency = () => `${((performance.now() - startedAt) / 1000).toFixed(1)}s`;
   const verboseTail = () => {
     if (cfg.verbose) renderer.notice(`${cfg.model} · ${latency()}`);
   };
