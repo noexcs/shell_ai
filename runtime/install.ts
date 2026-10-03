@@ -1,28 +1,36 @@
 /**
- * `ai-shell install` / `uninstall` / `print-plugin`.
+ * `ai-shell install` / `uninstall` / `print-plugin`, per shell.
  *
  * This is the only code that touches the user's shell configuration, and only
- * when `--write` is passed. The zsh side is resolved in this order: an explicit
+ * when `--write` is passed.  The plugin directory is resolved as: an explicit
  * AI_SHELL_PLUGIN_DIR, the in-repo checkout (development), or the copies
- * embedded in the binary — extracted to the user's data dir so a single-file
+ * embedded in the binary — extracted under the user's data dir so a single-file
  * install still works with no loose files.
  */
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { PLUGIN_FILES } from "./generated/plugin.ts";
 
 const MARKER_START = "# >>> ai-shell >>>";
 const MARKER_END = "# <<< ai-shell <<<";
 
+export type ShellName = "zsh" | "bash";
+
+export const SHELLS: ShellName[] = ["zsh", "bash"];
+
+const ENTRY: Record<ShellName, string> = { zsh: "ai-shell.zsh", bash: "ai-shell.bash" };
+const RC_FILE: Record<ShellName, string> = { zsh: ".zshrc", bash: ".bashrc" };
+
 export interface InstallOptions {
   write: boolean;
+  shell: ShellName;
   echo: (message: string) => void;
 }
 
-function rootDir(): string {
+function repoRoot(): string {
   // runtime/install.ts → repo root when running from a checkout.
   return join(import.meta.dirname, "..");
 }
@@ -31,36 +39,54 @@ function dataHome(): string {
   return process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
 }
 
-function zshrcPath(): string {
-  return join(process.env.ZDOTDIR ?? homedir(), ".zshrc");
+/** Where the embedded tree is unpacked (mirrors the repo layout). */
+export function extractRoot(): string {
+  return join(dataHome(), "ai-shell");
 }
 
 export function extractPlugin(): string {
-  const dir = join(dataHome(), "ai-shell", "plugin", "zsh");
-  mkdirSync(dir, { recursive: true });
-  for (const [name, contents] of Object.entries(PLUGIN_FILES)) {
-    const target = join(dir, name);
-    if (existsSync(target) && readFileSync(target, "utf8") === contents) continue;
-    writeFileSync(target, contents, "utf8");
+  const target = extractRoot();
+  for (const [path, contents] of Object.entries(PLUGIN_FILES)) {
+    const file = join(target, path);
+    if (existsSync(file) && readFileSync(file, "utf8") === contents) continue;
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, contents, "utf8");
   }
-  return dir;
+  return join(target, "plugin");
 }
 
-/** Directory to `source` from ~/.zshrc. */
-export function resolvePluginDir(): string {
+/** Directory holding <shell>/ai-shell.<ext>. */
+export function resolvePluginDir(shell: ShellName): string {
   const explicit = process.env.AI_SHELL_PLUGIN_DIR;
   if (explicit !== undefined && explicit !== "") return explicit;
 
-  const checkout = join(rootDir(), "plugin", "zsh");
-  if (existsSync(join(checkout, "ai-shell.zsh"))) return checkout;
+  const checkout = join(repoRoot(), "plugin");
+  if (existsSync(join(checkout, shell, ENTRY[shell]))) return checkout;
 
   return extractPlugin();
 }
 
+export function entryPoint(shell: ShellName): string {
+  return join(resolvePluginDir(shell), shell, ENTRY[shell]);
+}
+
+function rcPath(shell: ShellName): string {
+  if (shell === "zsh") return join(process.env.ZDOTDIR ?? homedir(), RC_FILE.zsh);
+  return join(homedir(), RC_FILE.bash);
+}
+
+/** Detection used when the user does not pass --shell. */
+export function detectShell(): ShellName {
+  const fromEnv = (process.env.AI_SHELL_SHELL ?? "").trim().replace(/^-/, "");
+  if (fromEnv === "zsh" || fromEnv === "bash") return fromEnv;
+  const login = (process.env.SHELL ?? "").split("/").pop() ?? "";
+  return login === "bash" ? "bash" : "zsh";
+}
+
 function applyWrite(options: InstallOptions, next: string, summary: string): number {
-  const path = zshrcPath();
+  const path = rcPath(options.shell);
   if (!options.write) {
-    options.echo("以下内容需要写入 ~/.zshrc（加 --write 才会真正写入）：");
+    options.echo(`以下内容需要写入 ${path}（加 --write 才会真正写入）：`);
     options.echo(next);
     return 0;
   }
@@ -73,16 +99,15 @@ function applyWrite(options: InstallOptions, next: string, summary: string): num
 }
 
 export function runInstall(options: InstallOptions): number {
-  const dir = resolvePluginDir();
-  const line = `source ${join(dir, "ai-shell.zsh")}`;
-  const path = zshrcPath();
-  const current = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const line = `source ${entryPoint(options.shell)}`;
   const block = [MARKER_START, line, MARKER_END].join("\n");
+  const path = rcPath(options.shell);
+  const current = existsSync(path) ? readFileSync(path, "utf8") : "";
 
   if (current.includes(MARKER_START)) {
     const updated = current.replace(new RegExp(`${MARKER_START}[\\s\\S]*?${MARKER_END}`), block);
     if (updated === current) {
-      options.echo("ai-shell 已在 ~/.zshrc 中登记（未改动）。");
+      options.echo(`ai-shell 已在 ${path} 中登记（未改动）。`);
       return 0;
     }
     return applyWrite(options, updated, "已更新 ai-shell 加载行");
@@ -97,14 +122,14 @@ export function runInstall(options: InstallOptions): number {
 }
 
 export function runUninstall(options: InstallOptions): number {
-  const path = zshrcPath();
+  const path = rcPath(options.shell);
   if (!existsSync(path)) {
-    options.echo("~/.zshrc 不存在，无需卸载。");
+    options.echo(`${path} 不存在，无需卸载。`);
     return 0;
   }
   const current = readFileSync(path, "utf8");
   if (!current.includes(MARKER_START)) {
-    options.echo("~/.zshrc 中没有 ai-shell 加载行。");
+    options.echo(`${path} 中没有 ai-shell 加载行。`);
     return 0;
   }
   const pattern = new RegExp(`\\n*${MARKER_START}[\\s\\S]*?${MARKER_END}\\n*`, "m");
@@ -112,8 +137,8 @@ export function runUninstall(options: InstallOptions): number {
   return applyWrite(options, next, "已删除 ai-shell 加载行");
 }
 
-/** For zsh plugin managers that want the directory instead of an rc edit. */
-export function printPluginDir(echo: (message: string) => void): number {
-  echo(resolvePluginDir());
+/** For shell plugin managers that want the directory instead of an rc edit. */
+export function printPluginDir(echo: (message: string) => void, shell: ShellName): number {
+  echo(entryPoint(shell));
   return 0;
 }

@@ -137,12 +137,15 @@ setopt interactive_comments   # 放进 ~/.zshrc
 ## 结构
 
 ```
-plugin/zsh/          zsh 集成（accept-line / command_not_found_handler / precmd / zle-line-init）
+plugin/lib/          共享核心：触发策略、上下文组装、runtime 桥接、忽略名单（两 shell 同一份）
+plugin/zsh/          zsh 入口 + 适配层（accept-line widget / CNF / precmd / zle-line-init）
+plugin/bash/         bash 入口 + 适配层（CNF / PROMPT_COMMAND / 一次性回车注入）
 runtime/             Node/Bun runtime：NUL 上下文 → OpenAI 兼容端点 → 面板 + --command-out
 runtime/generated/   由 scripts/gen-plugin.ts 生成的插件副本（供单文件二进制内嵌）
-sandbox/.zshrc       ZDOTDIR 沙箱
+sandbox/             ZDOTDIR / --rcfile 沙箱（.zshrc 与 .bashrc）
 test/unit/           node --test
-test/e2e.py          pty 三场景 + 脱敏验收（并行，真实 LLM 调用）
+test/e2e.py          pty 三场景 + 脱敏验收（`--shell zsh|bash`，并行，真实 LLM 调用）
+scripts/lint-shell.sh 逐文件、按对应 shell 做语法检查
 ```
 
 契约只有两条：**stdin** 是 NUL 分隔的 11 个裸字段（顺序见 `runtime/context.ts`，无需转义）；**stdout** 是给人看的面板，不承载机器语义——建议命令只经 `--command-out` 文件传递，shell 侧用 `$(<file)` 读取，**永不 eval**。
@@ -151,15 +154,29 @@ test/e2e.py          pty 三场景 + 脱敏验收（并行，真实 LLM 调用�
 
 ```sh
 npm run test:unit              # 快，无网络
-python3 test/e2e.py            # 6 个场景，3 并发；每个场景独立 pty/日志
+python3 test/e2e.py            # zsh，6 个场景，3 并发
+python3 test/e2e.py --shell bash   # 同一套场景跑 bash（需 bash 4+）
 python3 test/e2e.py --jobs 5   # 更快
 python3 test/e2e.py --only A2  # 单场景
+./scripts/lint-shell.sh        # 逐文件、按对应 shell 做语法检查
 ```
 
 ## 已知限制
+
+**通用**
 
 - 等待 AI 期间敲的键不会丢，但会追加到建议命令之后——用 Backspace/Ctrl+U 清掉即可（也可 Ctrl+C 直接中断这次调用）。
 - 不提供命令输出内容（MVP 不做 output capture）。
 - 长命令运行期间的实时介入不在范围内。
 - 面板是已打印的历史文本，没有 Esc 收起。
-- 只在 zsh 5.9 / macOS 上做过完整验证；Bash/Fish 未支持。
+
+**按 shell**
+
+| | zsh 5.9+ | bash 5+（macOS 需 `brew install bash`） |
+|---|---|---|
+| 自然语言 | accept-line 阶段拦下，**不执行** | 无执行前钩子：该行会被执行并落到 command-not-found 路径（终端多一行 `bash: X: command not found`） |
+| 建议交付 | 下一个提示符**自动预填**（`zle-line-init`） | bash 无预填机制 → 面板后提示"按 Enter 填入建议"，**多一次回车** |
+| 行尾注释 | 需 `setopt interactive_comments` | 默认开启，直接带 `# 理由` |
+| 空行回车 | 不会重复分析（`HISTCMD` 守卫） | 同左（实测两 shell 空行都不重置 `$?`） |
+
+安装：`ai-shell install --shell bash --write`（写 `~/.bashrc`），沙箱用 `npm run sandbox:bash`。

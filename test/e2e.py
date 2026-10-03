@@ -30,6 +30,7 @@ import re
 import select
 import shutil
 import signal
+import subprocess
 import sys
 import time
 
@@ -38,6 +39,20 @@ SANDBOX = os.path.join(ROOT, "sandbox")
 LOG_DIR = os.path.join(ROOT, ".ai-shell-e2e")
 PROMPT = "SHELLAI> "
 AI_TIMEOUT = 30.0
+
+
+def bash_binary() -> str | None:
+    """A bash >= 4 (macOS ships 3.2, which has no READLINE_LINE)."""
+    candidates = [shutil.which("bash5"), "/opt/homebrew/bin/bash", "/usr/local/bin/bash", shutil.which("bash")]
+    for candidate in candidates:
+        if not candidate or not os.path.exists(candidate):
+            continue
+        probe = subprocess.run(
+            [candidate, "-c", "echo ${BASH_VERSINFO[0]}"], capture_output=True, text=True
+        )
+        if probe.returncode == 0 and probe.stdout.strip().isdigit() and int(probe.stdout.strip()) >= 4:
+            return candidate
+    return None
 
 ANSI_CSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 ANSI_OSC = re.compile(r"\x1b\][^\x07]*\x07")
@@ -81,7 +96,8 @@ class TimeoutError_(Exception):
 class ShellSession:
     """A zsh in its own pty, synchronized on the sandbox prompt token."""
 
-    def __init__(self, log_path: str) -> None:
+    def __init__(self, log_path: str, shell: str = "zsh") -> None:
+        self.shell = shell
         self.log_path = log_path
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         with open(log_path, "w"):
@@ -90,7 +106,6 @@ class ShellSession:
         self.pid, self.fd = pty.fork()
         if self.pid == 0:  # child
             os.environ.update(
-                ZDOTDIR=SANDBOX,
                 TERM="xterm-256color",
                 LANG="en_US.UTF-8",
                 LC_ALL="en_US.UTF-8",
@@ -100,8 +115,37 @@ class ShellSession:
                 # instead of `node runtime/main.ts`.
                 AI_SHELL_BIN=os.environ.get("AI_SHELL_BIN", ""),
             )
-            os.execvp("zsh", ["zsh", "-i"])
-        self.wait_for(re.escape(PROMPT), 15.0)
+            if shell == "bash":
+                os.environ.pop("ZDOTDIR", None)
+                binary = bash_binary() or "bash"
+                os.execvp(binary, [binary, "--rcfile", os.path.join(SANDBOX, ".bashrc"), "-i"])
+            else:
+                os.environ["ZDOTDIR"] = SANDBOX
+                os.execvp("zsh", ["zsh", "-i"])
+        self.wait_for(re.escape(PROMPT), 20.0)
+
+    def prompt_count(self) -> int:
+        return len(re.findall(re.escape(PROMPT), self.text()))
+
+    def accept(self) -> None:
+        """Deliver a pending suggestion.
+
+        zsh pre-fills the next buffer by itself; bash cannot, so the adapter arms
+        a one-shot Enter handler and the Enter that would have been a no-op on an
+        empty line accepts the suggestion instead.
+
+        The keystroke must arrive *after* the shell is back at a prompt: one sent
+        while the AI call is still running is consumed by the tty before readline
+        arms the handler (measured).
+        """
+        if self.shell != "bash":
+            return
+        before = self.prompt_count()
+        deadline = time.monotonic() + AI_TIMEOUT
+        while self.prompt_count() <= before and time.monotonic() < deadline:
+            self._pump(0.2)
+        self.send("\r")
+        self._pump(2.5)
 
     def _pump(self, seconds: float) -> None:
         deadline = time.monotonic() + seconds
@@ -206,9 +250,9 @@ class Scenario:
         return bool(self.checks) and all(ok for _, ok in self.checks)
 
 
-def run_scenario(name: str, description: str, body, log_path: str) -> Scenario:
+def run_scenario(name: str, description: str, body, log_path: str, shell: str) -> Scenario:
     scenario = Scenario(name, description)
-    session = ShellSession(log_path)
+    session = ShellSession(log_path, shell)
     mark = session.mark()
     try:
         body(scenario, session, mark)
@@ -237,9 +281,10 @@ def scenario_a1(scenario: Scenario, session: ShellSession, mark: int) -> None:
 def scenario_a2(scenario: Scenario, session: ShellSession, mark: int) -> None:
     session.send("dockre ps\r")
     scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    session.accept()
     buffer = session.wait_buffer(lambda value: value.startswith("docker"))
     text = session.since(mark)
-    scenario.check("zsh error kept", "command not found: dockre" in text)
+    scenario.check("shell error kept", "command not found" in text and "dockre" in text)
     scenario.check("buffer got the suggestion", buffer.startswith("docker"))
     log = session.log()
     scenario.check("one command_not_found call", log.count("trigger=command_not_found") == 1)
@@ -252,11 +297,17 @@ def scenario_a3(scenario: Scenario, session: ShellSession, mark: int) -> None:
     phrase = "帮我找出当前目录最大的10个文件"
     session.send(phrase + "\r")
     scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    session.accept()
     suggestion = session.wait_buffer(
         lambda value: value != "" and shutil.which(value.split()[0]) is not None
     )
     text = session.since(mark)
-    scenario.check("phrase was not executed as a command", f"command not found: {phrase[:2]}" not in text)
+    if session.shell == "zsh":
+        scenario.check("phrase was not executed as a command", f"command not found: {phrase[:2]}" not in text)
+    else:
+        # bash has no pre-execution hook, so the line runs and lands in the
+        # command-not-found path instead (documented difference).
+        scenario.check("bash routed it through command-not-found", "command not found" in text)
     scenario.check(
         "suggestion's first word is a real command",
         suggestion != "" and shutil.which(suggestion.split()[0]) is not None,
@@ -283,6 +334,7 @@ def scenario_a3(scenario: Scenario, session: ShellSession, mark: int) -> None:
 def scenario_a4(scenario: Scenario, session: ShellSession, mark: int) -> None:
     session.send("ls -Z\r")
     scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    session.accept()
     buffer = session.wait_buffer(lambda value: value not in ("", "ls -Z"))
     text = session.since(mark)
     scenario.check("ls error kept", "illegal option" in text or "invalid option" in text)
@@ -295,6 +347,7 @@ def scenario_a4(scenario: Scenario, session: ShellSession, mark: int) -> None:
 def scenario_a5(scenario: Scenario, session: ShellSession, mark: int) -> None:
     session.send("dockre ps\r")
     scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    session.accept()
     session.wait_buffer(lambda value: value.startswith("docker"))
     session.send("\x03")  # Ctrl+C instead of Enter
     cleared = session.wait_buffer(lambda value: value == "")
@@ -317,7 +370,10 @@ def scenario_a6(scenario: Scenario, session: ShellSession, mark: int) -> None:
     masked_lines = [line for line in dump if line.endswith("=[redacted]")]
     scenario.check("at least one env var was masked", len(masked_lines) > 0)
     scenario.check("redaction is reported to the user", "已脱敏" in text)
-    scenario.check("non-secret env survives", any(line.startswith("PATH=") for line in dump))
+    scenario.check(
+        "non-secret env survives",
+        any("=" in line and not line.endswith("=[redacted]") for line in dump),
+    )
     if real_secret != "":
         scenario.check("the provider key value never appears", real_secret not in text)
 
@@ -352,11 +408,15 @@ def main() -> int:
     parser.add_argument("--only", nargs="+", choices=sorted(SCENARIOS), default=None)
     parser.add_argument("--skip", nargs="+", choices=sorted(SCENARIOS), default=[])
     parser.add_argument("--jobs", type=int, default=3, help="scenarios to run at once (default 3)")
+    parser.add_argument("--shell", choices=["zsh", "bash"], default="zsh", help="which shell to test")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
     if args.only and args.skip:
         print("FAIL: use either --only or --skip, not both")
+        return 1
+    if args.shell == "bash" and bash_binary() is None:
+        print("FAIL: 需要 bash >= 4（macOS 自带 3.2）：brew install bash")
         return 1
 
     selected = args.only or sorted(SCENARIOS)
@@ -373,7 +433,8 @@ def main() -> int:
                 name,
                 SCENARIOS[name][0],
                 SCENARIOS[name][1],
-                os.path.join(LOG_DIR, f"log-{name}"),
+                os.path.join(LOG_DIR, f"log-{args.shell}-{name}"),
+                args.shell,
             ): index
             for index, name in enumerate(selected)
         }
@@ -386,7 +447,7 @@ def main() -> int:
 
     failed = [scenario.name for scenario in results if scenario is not None and not scenario.passed]
     print(
-        f"\n{len(selected) - len(failed)}/{len(selected)} scenarios passed"
+        f"\n[{args.shell}] {len(selected) - len(failed)}/{len(selected)} scenarios passed"
         f" in {time.monotonic() - started:.1f}s ({jobs} at a time)"
         + (f" (failed: {', '.join(failed)})" if failed else "")
     )

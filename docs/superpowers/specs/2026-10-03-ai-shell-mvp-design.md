@@ -291,3 +291,38 @@ shell_ai/
 - **BYOK**：不提供模型服务。`setup` 先探测本机 Ollama(11434)/LM Studio(1234)/vLLM(8000)，否则从 provider 预设里选；密钥存系统钥匙串；`doctor` 用一次真实调用验证所选模型**会调用工具**（这是架构的硬前提）。
 - **隐私默认值**：`env_mode=redacted`。BYOK 下用户的 key 就在自己的环境里，不脱敏等于把 A 家的 key 发给 B 家。脱敏在截断之前执行，避免名字被切半而漏匹配。
 - **分发前仍需**：macOS 签名/公证（Gatekeeper 会拦未签名二进制）、Linux glibc/musl 两种 target、以及把 `test/e2e.py` 扩成终端/插件管理器兼容矩阵。
+
+## 12. ShellAdapter（多 shell，2026-10-03 起）
+
+核心（`plugin/lib/ai-shell-core.sh`）持有全部策略：触发判定、上下文组装、runtime 桥接、忽略名单、连击上限、pending 交付。每个 shell 只实现适配层：
+
+```
+_ai_shell_adapter_init / _finish      注册/注销钩子
+_history <n>                          最近 n 条历史
+_command_exists <word>                本 shell 能否解析
+_supports_comment                     '#' 是否算注释（决定 --comment）
+_pending_ready <cmd>                  建议的交付方式
+_notice <text>                        一行提示（可为空实现）
+_not_found_message <cmd>              本 shell 原样的报错文案
+_doctor                               shell 侧自检输出
+```
+
+**实测能力矩阵**（同一批 spike，非推断）：
+
+| 机制 | zsh 5.9 | bash 5.3 | PowerShell 7.6 |
+|---|---|---|---|
+| 执行前拦 Enter | accept-line widget | `bind -x`，**会吃掉这次回车** | PSReadLine key handler |
+| 同键放行 | `.accept-line` ✅ | ❌（只能 eval，会坏交互程序） | `AcceptLine()` ✅ |
+| 读/改编辑行 | BUFFER / CURSOR | READLINE_LINE / POINT | `$line` + Replace/Insert |
+| **免按键预填下一行** | `zle-line-init` ✅ | ❌ 无此机制 | prompt 函数里 `Insert()` ✅ |
+| 命令不存在钩子 | ✅ CNF（**子 shell**） | ✅ CNF（**子 shell**） | ❌ 无，需在 Enter 处理器里预判 |
+| 退出码 | precmd | PROMPT_COMMAND | prompt 函数 |
+| 本仓库 pty e2e | ✅ | ✅（同一套场景） | ❌ 需 ConPTY |
+
+**因此产生的行为差异（已写进 e2e 断言）**：
+- bash 不拦 Enter：自然语言会被执行并落到 command-not-found 路径（多一行 `bash: X: command not found`）；zsh 在 accept-line 就拦下、不执行。
+- bash 无预填：建议经**一次性回车处理器**交付（空行回车本是 no-op），面板后打印一行提示，比 zsh 多一次回车。
+- **空行不重置 `$?`**（两 shell 实测一致）→ 适配层用 `HISTCMD` 判断"是否真的执行了新命令"，否则空行会重复触发 S3、重复消耗模型。
+- 注释：bash 默认开 `interactive_comments`（建议直接带行尾注释）；zsh 默认关，需显式 `setopt`。
+
+**加一个新 shell 的步骤**：写 `plugin/<shell>/ai-shell.<ext>`（入口：定位 root、source core+adapter、`_ai_shell_setup`）与 `adapter.<ext>`；在 `runtime/install.ts` 的 `ENTRY`/`RC_FILE` 里登记；`test/e2e.py --shell <name>` 复用场景（差异用 `session.accept()` 与 shell 条件断言表达）。

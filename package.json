@@ -22,9 +22,12 @@
     "build:npm": "npm run gen && ./scripts/build-npm.sh",
     "prepack": "npm run build:npm",
     "sandbox": "./scripts/sandbox.sh",
+    "sandbox:bash": "./scripts/sandbox-bash.sh",
+    "lint:shell": "./scripts/lint-shell.sh",
     "test:unit": "node --test test/unit/",
     "test:e2e": "python3 test/e2e.py",
-    "test": "npm run test:unit && npm run test:e2e"
+    "test:e2e:bash": "python3 test/e2e.py --shell bash",
+    "test": "npm run lint:shell && npm run test:unit && python3 test/e2e.py --jobs 5 && python3 test/e2e.py --shell bash --jobs 5"
   },
   "devDependencies": {
     "@ai-sdk/openai-compatible": "^3.0.62",

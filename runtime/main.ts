@@ -18,7 +18,7 @@ import { runAgent } from "./agent.ts";
 import { resolveConfig, type ResolvedConfig } from "./config.ts";
 import { runDoctor } from "./doctor.ts";
 import { promptHidden } from "./hidden-input.ts";
-import { printPluginDir, runInstall, runUninstall } from "./install.ts";
+import { detectShell, printPluginDir, runInstall, runUninstall, type ShellName } from "./install.ts";
 import { buildUserPrompt } from "./prompt.ts";
 import { findProvider } from "./providers.ts";
 import { redactEnv } from "./redact.ts";
@@ -79,6 +79,12 @@ async function readRedactedContext(cfg: ResolvedConfig) {
   const ctx = buildContext(fields);
   ctx.env = ctx.env === "" ? "（未发送环境变量）" : ctx.env;
   return { ctx, masked };
+}
+
+function shellFlag(args: string[]): ShellName {
+  const value = takeFlag(args, "--shell");
+  if (value === "zsh" || value === "bash") return value;
+  return detectShell();
 }
 
 async function ask(args: string[]): Promise<number> {
@@ -205,8 +211,8 @@ function usage(): string {
     "  doctor                                                             自检：插件、配置、端点、工具调用能力",
     "  auth set|rm|status <provider>                                      管理密钥（系统钥匙串优先）",
     "  debug --print-context                                              打印将要发送给模型的内容（含脱敏结果）",
-    "  print-plugin                                                       打印 zsh 插件目录（给插件管理器用）",
-    "  install [--write] / uninstall [--write]                            打印或写入 ~/.zshrc 的加载行",
+    "  print-plugin [--shell zsh|bash]                                   打印 shell 插件入口（给插件管理器用）",
+    "  install [--shell zsh|bash] [--write]                              打印或写入对应 rc 文件的加载行",
     "  version                                                            打印版本",
   ].join("\n");
 }
@@ -226,11 +232,11 @@ async function main(): Promise<number> {
     case "debug":
       return debug(args);
     case "print-plugin":
-      return printPluginDir(console.log);
+      return printPluginDir(console.log, shellFlag(args));
     case "install":
-      return runInstall({ write: args.includes("--write"), echo: console.log });
+      return runInstall({ write: args.includes("--write"), shell: shellFlag(args), echo: console.log });
     case "uninstall":
-      return runUninstall({ write: args.includes("--write"), echo: console.log });
+      return runUninstall({ write: args.includes("--write"), shell: shellFlag(args), echo: console.log });
     case "version":
       console.log(`ai-shell ${VERSION}`);
       return EXIT_OK;
