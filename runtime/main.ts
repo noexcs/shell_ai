@@ -217,6 +217,7 @@ function usage(): string {
     "  debug --print-context                                              打印将要发送给模型的内容（含脱敏结果）",
     "  print-plugin [--shell zsh|bash]                                   打印 shell 插件入口（给插件管理器用）",
     "  install [--shell zsh|bash] [--write]                              打印或写入对应 rc 文件的加载行",
+    "  uninstall [--shell zsh|bash] [--write]                            从 rc 文件中移除本工具的加载行",
     "  version                                                            打印版本",
   ].join("\n");
 }

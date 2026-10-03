@@ -1,58 +1,12 @@
 # ai-shell
 
-运行在现有 zsh 之上的 **AI fallback 层**。Shell 仍是第一交互入口：只有在你输入自然语言、命令不存在、或命令执行失败时，AI 才介入，并把建议命令**填进真正的 ZLE buffer**——最终执行权始终在你按下 Enter 的那一刻。
+> **AI 是 shell 的兜底，不是入口。**
+>
+> 你照常敲命令。只有**打错了命令、命令跑失败了、或者直接说人话**的时候它才出现——
+> 把该敲的命令放进**你正在编辑的那一行**，你按 Enter 它才会执行。
 
-> **AI 从不执行命令。** 模型输出只会被贴进 `BUFFER`，本仓库不存在任何把模型输出交给 `eval` / `sh -c` / `exec` 的代码路径；`suggest_command` 工具也没有 `execute`。
-> **模型是你自己的（BYOK）。** 我们不提供模型服务，也不需要你的数据；密钥存在系统钥匙串里，环境变量默认脱敏。
-
-设计文档：[`docs/superpowers/specs/2026-10-03-ai-shell-mvp-design.md`](docs/superpowers/specs/2026-10-03-ai-shell-mvp-design.md) · 产品设计：[`PRODUCTION_DESIGN.md`](PRODUCTION_DESIGN.md)
-
-## 安装
-
-**方式一：npm（约 140KB，无运行时依赖）**
-
-```sh
-npm install -g @noexcs/ai-shell
-ai-shell install --write    # 写 ~/.zshrc（插件直接用包内的 plugin/zsh）
-```
-
-包内是一个 443KB 的打包 CLI（AI SDK 已 bundle，`node_modules` 里不加任何运行时依赖），
-所以到用户机器上是"一个文件 + 6 个 .zsh"，没有 60MB 二进制，也没有几十 MB 依赖树。
-
-**方式二：单文件二进制（不需要 Node）**
-
-```sh
-npm run build            # 产出 dist/ai-shell（自包含，含 zsh 插件；跨平台用 scripts/build.sh bun-linux-x64）
-cp dist/ai-shell ~/.local/bin/
-ai-shell install --write # 解出 zsh 插件到 ~/.local/share/ai-shell，并写入 ~/.zshrc
-```
-
-**方式二：源码开发**
-
-```sh
-npm install
-node runtime/main.ts install --write    # 同上，插件直接用仓库里的 plugin/zsh
-npm run sandbox                          # 或先用沙箱试：ZDOTDIR=$PWD/sandbox zsh -i
-```
-
-改过插件后，**已开着的 shell 需要重载**（插件有加载守护，避免重复注册钩子）：
-
-```sh
-ai-shell-reload
-```
-
-## 首次配置（BYOK）
-
-```sh
-ai-shell setup     # 向导：先探测本机 Ollama/LM Studio/vLLM，否则从预设里选一个
-ai-shell doctor    # 自检：插件、配置、端点可达性，以及"这个模型到底会不会调用工具"
-```
-
-密钥**只存本机**：优先系统钥匙串（macOS `security` / Linux `secret-tool`），拿不到才退回 `~/.config/ai-shell/secrets.json`（mode 600，`doctor` 会提醒）。也支持直接给环境变量（`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`VLLM_API_KEY`… 或 `AI_SHELL_API_KEY`）。
-
-> 客户端侧之所以把密钥放钥匙串而不是导出到环境，有个额外好处：它不会出现在 shell 的 env 里，也就不可能被当作上下文发出去。
-
-## 三个场景
+[![release](https://img.shields.io/github/v/release/noexcs/shell_ai?color=brightgreen)](https://github.com/noexcs/shell_ai/releases)
+[![shells](https://img.shields.io/badge/shells-zsh%20%7C%20bash%20%28WSL%20%E5%8F%AF%E7%94%A8%EF%BC%89-blue)](#常见问题)
 
 ```console
 $ dockre ps
@@ -61,33 +15,105 @@ zsh: command not found: dockre
 ✦ AI — shell 助手
 │ `dockre` 是 `docker` 的字母顺序打错（不是自然语言）。
 │ → docker ps  # 把 dockre 纠正为 docker
-│ Qwen3.8-27B · 4.3s
+│ Qwen3.8-27B · 3.8s
 
-$ docker ps  # 把 dockre 纠正为 docker    ← 已在 buffer，可编辑，Enter 才执行
+$ docker ps        ← 命令已经在你的命令行里，能改，按 Enter 才执行
 ```
 
-1. **自然语言** — 含非 ASCII 且首词不是可解析命令时拦截，不交给 zsh 执行。
-2. **command not found** — 保留 zsh 原始报错，面板紧随其后，建议在下一个提示符就位。
-3. **命令失败（exit ≠ 0）** — 面板出现在命令输出与下一个提示符之间。
+不用记快捷键，不用学新命令，不用切换模式，也不用复制粘贴。**它给你的不是一段文本，是你命令行里那条待执行的命令。**
 
-正常命令（`ls`、`git status`、管道、`cd`、`alias`）不 fork、不联网、不产生任何日志。
+## 它能帮你做什么
 
-## 命令
-
-| 命令 | 作用 |
+| 你遇到的情况 | 会发生什么 |
 |---|---|
-| `ask` | fallback 路径，被 zsh 插件调用（stdin 读 NUL 上下文） |
-| `setup` | 交互式配置模型端点与密钥 |
-| `doctor` | 自检 + 工具调用探针 |
-| `auth set\|rm\|status <provider>` | 管理密钥（系统钥匙串优先） |
-| `debug --print-context` | 打印将要发给模型的内容（含脱敏结果），不发请求 |
-| `print-plugin` | 打印 zsh 插件目录（给插件管理器用） |
-| `install` / `uninstall [--write]` | 打印或写入 `~/.zshrc` 的加载行 |
-| `version` | 版本 |
+| **打错命令**（`dockre ps`） | 它认出这是拼写错误，告诉你正确的命令，并把正确命令放进你的命令行 |
+| **命令跑失败了**（参数写错、服务没起、权限不够…） | 它**先解释为什么失败**，再给出修好的命令——而不是丢给你一条猜的命令 |
+| **不知道命令怎么写**（"找出当前目录最大的文件"、"看看谁占着 8080"） | 直接用中文说就行，它把命令给你 |
+| **连命令名都记不住** | 你不需要记——说你要做什么就可以 |
 
-## 配置
+**命令永远先到你手上**：它会填进你正在编辑的那一行，你可以改、可以删，按 Enter 才真的执行。
 
-优先级：**内置默认 < `~/.config/ai-shell/config.json` < 环境变量 < 命令行参数**
+## 为什么可以放心天天用
+
+- **不会乱执行你的命令。** 它没有执行命令这个能力——不是"默认关闭"的开关，而是根本不存在这个功能。你看到的每条建议都只是填进命令行。
+- **正常敲命令时它完全不工作。** 不联网、不占时间、不留记录。`ls`、`git status`、`cd`、管道……你感觉不到它存在。
+- **不用把密钥交出去。** 密钥存在系统钥匙串里（不进 shell 环境）；发给模型的环境变量默认打码（`*KEY*`、`*TOKEN*` → `[redacted]`）；想确认到底发了什么，一条 `ai-shell debug --print-context` 逐字给你看。
+- **不抓你的命令输出**，不读终端历史回滚。
+- **换成你自己的模型**：本地 Ollama / LM Studio、自建 vLLM、或任意 OpenAI 兼容服务；我们用你的 key 直连，不经过我们的服务器。
+
+## 它不做什么（先说清楚，免得期待错）
+
+- **不替换你的 shell**，也不改变你任何一条普通命令的行为。
+- **不自动执行**、不自动 sudo、不改你的文件。
+- **不在长命令运行期间插话**（比如 `npm install` 跑到一半）。
+- **不接管终端**：不装壳套在你的终端外面，不做全屏界面。
+- 目前只支持 **zsh 和 bash**（含 WSL）；PowerShell 只验证过机制、还没实现。
+
+## 怎么开始
+
+**1. 装（约 140KB，不需要管理员权限）**
+
+```sh
+curl -sL https://github.com/noexcs/shell_ai/releases/download/v0.1.4/noexcs-ai-shell-0.1.4.tgz -o /tmp/ai-shell.tgz
+npm i -g /tmp/ai-shell.tgz
+```
+
+**2. 配一个模型（BYOK，30 秒）**
+
+```sh
+ai-shell setup      # 先自动探测本机模型（Ollama / LM Studio / vLLM）；没有就从预设里选一个，粘贴你的 key
+ai-shell doctor     # 自检：还会真调一次模型，确认它能配合工作
+```
+
+**3. 挂进 shell，重开终端**
+
+```sh
+ai-shell install --write     # 自动识别 zsh / bash，写入对应配置文件
+exec $SHELL
+```
+
+然后随便打错一条命令试试。想卸载：`ai-shell uninstall --write`。
+
+> 没有 Node？可以下**单文件二进制**（自包含，含插件），或在源码目录里跑 `node runtime/main.ts install --write`。
+
+## 适合谁
+
+- 每天都在终端里，但**记不住参数**：`find` 的 `-exec`、`tar` 的 `-zxvf`、`ffmpeg` 那一长串。
+- 经常**离开终端去搜"这个报错是什么意思"**。
+- 在**别人的机器 / 服务器 / WSL** 里干活，环境不熟。
+- 想要 AI 帮忙，但**受不了它自动执行命令**。
+- 手里已经有模型（本地部署或 API key），想让它在 shell 里随叫随到。
+
+**可能不适合你**：主力是 PowerShell/cmd；想要全屏 TUI 与鼠标操作；想让它直接改文件、跑命令、自己完成多步任务（那是 Code Agent 的活，不是这个产品的定位）。
+
+## 常见问题
+
+**它会不会没等我同意就把命令跑了？**
+不会。它只能把命令填进你的命令行，执行永远是你按 Enter。
+
+**我的密钥和命令历史会被发到哪里？**
+只发给**你自己配置的模型服务**（本地模型则不出机器）。密钥默认存系统钥匙串、不进 shell 环境；环境变量默认脱敏；`ai-shell debug --print-context` 能逐字检查即将发出的内容。
+
+**它会拖慢我的 shell 吗？**
+正常命令不会联网、不会起后台进程、不会写日志——只有"打错/失败/说人话"这三种情况才会调用模型（通常几秒）。
+
+**要花多少钱？**
+用你自己的 key 或本地模型。正常敲命令零成本；一次 AI 介入取决于你选的模型（本地模型为零）。
+
+**支持哪些 shell / 系统？**
+zsh 与 bash（含 WSL），macOS 与 Linux。完整功能需要 **bash 4+**（"命令不存在"这条路径依赖 `command_not_found_handle`）；我们在 bash 5 上实测。macOS 自带的 bash 3.2 太老，`brew install bash` 即可。
+
+**PowerShell 呢？**
+只做过可行性验证（`AcceptLine()` 同键放行、提示函数里可预填），尚未实现——欢迎 PR。
+
+**和那些"按快捷键生成命令"的工具差在哪？**
+**触发方式**：那些要先想起来按快捷键、或输入特殊前缀；这个是**出错自动出现，正常使用零打扰**。
+**结果去向**：那些把命令打印出来让你复制；这个直接放进你正在编辑的命令行（zsh 零按键，bash 按一次回车）。
+**失败之后**：那些只会再给一条命令；这个会先告诉你**为什么失败**。
+
+## 进阶配置
+
+配置文件 `~/.config/ai-shell/config.json`（也可以用环境变量，优先级更高）：
 
 ```json
 {
@@ -99,84 +125,27 @@ $ docker ps  # 把 dockre 纠正为 docker    ← 已在 buffer，可编辑，En
 }
 ```
 
-| 变量 | 默认 | 作用 |
+| 开关 | 默认 | 作用 |
 |---|---|---|
-| `AI_SHELL_DISABLE` | 空 | 非空即完全停用 |
-| `AI_SHELL_PROVIDER` | 配置文件 | 预设名（openai/anthropic/deepseek/openrouter/groq/ollama/lmstudio/vllm） |
-| `AI_SHELL_BASE_URL` | 由 provider 决定 | OpenAI 兼容端点 |
-| `AI_SHELL_API_KEY` | 空 | 直接给 key（覆盖钥匙串） |
-| `AI_SHELL_MODEL` | 由 provider 决定 | 模型 id |
-| `AI_SHELL_ENV_MODE` | `redacted` | `redacted` / `full` / `none`——`full` 会把含密钥的完整 env 发出去 |
-| `AI_SHELL_TIMEOUT_MS` | `60000` | 单次调用超时（思考型模型实测 4–20s） |
-| `AI_SHELL_LOG` / `AI_SHELL_LOG_FILE` | 空 / 会话目录 | 调用日志（测试断言"正常命令无痕"靠它） |
-| `AI_SHELL_IGNORE_EXTRA` | 空 | 额外"非零退出属正常"的命令名，空格分隔，如 `"curl docker"` |
-| `AI_SHELL_MAX_EXIT_AI` | `3` | 连续失败触发上限，防刷屏 |
-| `AI_SHELL_VERBOSE` | 开 | 置 `0` 关闭面板末尾的 `模型 · 耗时` |
-| `AI_SHELL_NO_COLOR` / `NO_COLOR` | 空 | 关闭颜色 |
-| `AI_SHELL_BIN` / `AI_SHELL_PLUGIN_DIR` | 自动探测 | 指定 runtime 二进制 / zsh 插件目录 |
+| `AI_SHELL_DISABLE` | 空 | 非空即暂时完全停用 |
+| `AI_SHELL_PROVIDER` | 配置文件 | 预设：openai / anthropic / deepseek / openrouter / groq / ollama / lmstudio / vllm |
+| `AI_SHELL_MODEL` | 由 provider 决定 | 模型名 |
+| `AI_SHELL_ENV_MODE` | `redacted` | `redacted` / `full` / `none`——`full` 会把含密钥的完整环境变量发出去 |
+| `AI_SHELL_TIMEOUT_MS` | `60000` | 单次等待上限（思考型模型常见 4–20s） |
+| `AI_SHELL_IGNORE_EXTRA` | 空 | 让更多命令"失败也不打扰"，如 `"curl docker"` |
+| `AI_SHELL_MAX_EXIT_AI` | `3` | 连续失败最多打扰几次，防刷屏 |
+| `AI_SHELL_VERBOSE` | 开 | 置 `0` 关掉面板末尾的"模型 · 耗时" |
 
-失败的退出码若来自 `grep`/`diff`/`cmp`/`test`/`[`/`[[`/`rg` 等（内置 `AI_SHELL_IGNORE`）不会触发 AI——它们"失败"是正常语义。注意匹配的是**命令首词**，`git diff --exit-code` 这类"子命令语义"的失败过滤不了。
+`grep`、`diff`、`test`、`[` 这类"失败是正常语义"的命令已经默认不打扰（匹配命令首词，所以 `git diff --exit-code` 这类过滤不了）。
 
-### 建议命令的解释
+## 开发者
 
-模型的简短理由会作为**行尾注释**附在建议命令后面（`docker ps  # 查看所有容器`），这样它随命令进历史。前提是 shell 把 `#` 当注释——zsh **默认不是**：
+设计文档：[`docs/superpowers/specs/2026-10-03-ai-shell-mvp-design.md`](docs/superpowers/specs/2026-10-03-ai-shell-mvp-design.md) · 产品设计：[`PRODUCTION_DESIGN.md`](PRODUCTION_DESIGN.md)
+
+所有行为都有自动化验收（zsh 与 bash 各 6 个场景，覆盖"正常命令零打扰""建议必须等你按 Enter""密钥不外发"等），自己跑：
 
 ```sh
-setopt interactive_comments   # 放进 ~/.zshrc
+npm run test:unit                   # 快，无网络
+python3 test/e2e.py                 # zsh 端到端（真实模型调用）
+python3 test/e2e.py --shell bash    # bash
 ```
-
-没有这个选项时插件会自动回退：命令不带注释，理由改为面板里单独一行（因为 `# …` 会被当成参数传给命令）。
-
-## 隐私
-
-- **env 默认脱敏**：`*KEY*/*TOKEN*/*SECRET*/*PASSWORD*/*CREDENTIAL*/*AUTH*` 名字的值替换成 `[redacted]`，且脱敏发生在截断之前（避免名字被切半而漏匹配）。
-- `ai-shell debug --print-context` 让你亲眼看到要发出去的内容。
-- 密钥优先存系统钥匙串，不进 shell 环境。
-- 上下文只含：shell/平台/cwd/命令/退出码/最近历史/（脱敏后的）env/最近 20 条历史。**不含命令输出**（MVP 不做 output capture）。
-
-## 结构
-
-```
-plugin/lib/          共享核心：触发策略、上下文组装、runtime 桥接、忽略名单（两 shell 同一份）
-plugin/zsh/          zsh 入口 + 适配层（accept-line widget / CNF / precmd / zle-line-init）
-plugin/bash/         bash 入口 + 适配层（CNF / PROMPT_COMMAND / 一次性回车注入）
-runtime/             Node/Bun runtime：NUL 上下文 → OpenAI 兼容端点 → 面板 + --command-out
-runtime/generated/   由 scripts/gen-plugin.ts 生成的插件副本（供单文件二进制内嵌）
-sandbox/             ZDOTDIR / --rcfile 沙箱（.zshrc 与 .bashrc）
-test/unit/           node --test
-test/e2e.py          pty 三场景 + 脱敏验收（`--shell zsh|bash`，并行，真实 LLM 调用）
-scripts/lint-shell.sh 逐文件、按对应 shell 做语法检查
-```
-
-契约只有两条：**stdin** 是 NUL 分隔的 11 个裸字段（顺序见 `runtime/context.ts`，无需转义）；**stdout** 是给人看的面板，不承载机器语义——建议命令只经 `--command-out` 文件传递，shell 侧用 `$(<file)` 读取，**永不 eval**。
-
-## 测试
-
-```sh
-npm run test:unit              # 快，无网络
-python3 test/e2e.py            # zsh，6 个场景，3 并发
-python3 test/e2e.py --shell bash   # 同一套场景跑 bash（需 bash 4+）
-python3 test/e2e.py --jobs 5   # 更快
-python3 test/e2e.py --only A2  # 单场景
-./scripts/lint-shell.sh        # 逐文件、按对应 shell 做语法检查
-```
-
-## 已知限制
-
-**通用**
-
-- 等待 AI 期间敲的键不会丢，但会追加到建议命令之后——用 Backspace/Ctrl+U 清掉即可（也可 Ctrl+C 直接中断这次调用）。
-- 不提供命令输出内容（MVP 不做 output capture）。
-- 长命令运行期间的实时介入不在范围内。
-- 面板是已打印的历史文本，没有 Esc 收起。
-
-**按 shell**
-
-| | zsh 5.9+ | bash 5+（macOS 需 `brew install bash`） |
-|---|---|---|
-| 自然语言 | accept-line 阶段拦下，**不执行** | 无执行前钩子：该行会被执行并落到 command-not-found 路径（终端多一行 `bash: X: command not found`） |
-| 建议交付 | 下一个提示符**自动预填**（`zle-line-init`） | bash 无预填机制 → 面板后提示"按 Enter 填入建议"，**多一次回车** |
-| 行尾注释 | 需 `setopt interactive_comments` | 默认开启，直接带 `# 理由` |
-| 空行回车 | 不会重复分析（`HISTCMD` 守卫） | 同左（实测两 shell 空行都不重置 `$?`） |
-
-安装：`ai-shell install --shell bash --write`（写 `~/.bashrc`），沙箱用 `npm run sandbox:bash`。
