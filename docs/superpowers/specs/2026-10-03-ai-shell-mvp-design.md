@@ -232,7 +232,7 @@ shell_ai/
 | `AI_SHELL_NO_COLOR` | 空 | `1` = 关闭颜色 |
 | `AI_SHELL_MAX_EXIT_AI` | `3` | 连续失败触发上限，防刷屏 |
 | `AI_SHELL_IGNORE_EXTRA` | 空 | 额外"非零退出属正常"的命令名（空格分隔），补在内置 `AI_SHELL_IGNORE` 之上；只匹配命令首词 |
-| `AI_SHELL_BASE_URL` / `AI_SHELL_API_KEY` | 见上 | 缺省即自建端点；不可达时 runtime 打印一行提示并退出 1（shell 不受影响） |
+| `AI_SHELL_BASE_URL` / `AI_SHELL_API_KEY` | 由 provider 决定 | 端点与鉴权；未配置时 runtime 提示运行 `ai-shell setup`（不猜端点，shell 不受影响） |
 
 **解析顺序**：内置默认 < `~/.config/ai-shell/config.json`（mode 600）< 环境变量 < 命令行参数。密钥不放在 config.json 的明文字段里：优先环境变量，其次系统钥匙串（`security`/`secret-tool`），最后才是 `secrets.json` 兜底。未配置时 `ask` 直接提示运行 `ai-shell setup`，不猜端点。
 
