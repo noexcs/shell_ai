@@ -137,19 +137,16 @@ _ai_shell_ask() {
 
 # --- trigger policies --------------------------------------------------------
 
-# Natural language typed at the prompt (zsh/shells with a pre-execution hook).
-# Deliberately conservative: only a line that contains non-ASCII *and* whose
-# first word resolves to nothing is treated as natural language.  Everything
-# else goes to the shell untouched.
-_ai_shell_should_intercept_line() {
-  local line=$1 first
-  [[ -n ${AI_SHELL_DISABLE:-} ]] && return 1
+# Non-ASCII and nothing the shell can resolve ⇒ the user typed a question, not a
+# command.  Shared by the pre-execution hook (zsh) and the command-not-found
+# handler (bash) so both shells frame the input the same way.
+_ai_shell_looks_like_natural_language() {
+  local line=$1 first saved_lc=${LC_ALL-}
   case ${line:0:1} in
     '' | '#' | '|' | '&' | ';' | '(' | ')' | '<' | '>') return 1 ;;
   esac
   # LC_ALL=C makes [:print:] byte-based, so non-ASCII is detected regardless of
   # the user's locale.
-  local saved_lc=${LC_ALL-}
   LC_ALL=C
   case $line in
     *[![:print:][:space:]]*) : ;;
@@ -158,18 +155,43 @@ _ai_shell_should_intercept_line() {
   LC_ALL=$saved_lc
   first=$(_ai_shell_first_word "$line")
   [[ -n $first ]] || return 1
+  case $first in
+    */*) return 1 ;;   # a path: let the shell report it, it is not a question
+  esac
   _ai_shell_adapter_command_exists "$first" && return 1
   return 0
+}
+
+# Natural language typed at the prompt (shells with a pre-execution hook).
+# Deliberately conservative: everything that is not clearly a question goes to
+# the shell untouched.
+_ai_shell_should_intercept_line() {
+  [[ -n ${AI_SHELL_DISABLE:-} ]] && return 1
+  _ai_shell_looks_like_natural_language "$1"
 }
 
 # Called by the shell's command-not-found hook (runs in a subshell in both zsh
 # and bash, so only file-based side effects survive).
 _ai_shell_on_not_found() {
-  local cmd=$1
+  local cmd=$1 line=${AI_SHELL_LAST_CMD:-$1}
+
+  if [[ -n ${AI_SHELL_DISABLE:-} ]]; then
+    _ai_shell_adapter_not_found_message "$cmd"
+    return 127
+  fi
+
+  if _ai_shell_looks_like_natural_language "$line"; then
+    # A question, not a mistyped command: skip the shell's own error line and
+    # send it as natural language, so the model answers it instead of explaining
+    # why bash said "command not found".
+    : > "$AI_SHELL_CNF_FLAG"
+    _ai_shell_ask nl "$line" "" 127
+    return 127
+  fi
+
   _ai_shell_adapter_not_found_message "$cmd"
-  [[ -n ${AI_SHELL_DISABLE:-} ]] && return 127
   : > "$AI_SHELL_CNF_FLAG"
-  _ai_shell_ask command_not_found "$AI_SHELL_LAST_CMD" "$cmd" 127
+  _ai_shell_ask command_not_found "$line" "$cmd" 127
   return 127
 }
 

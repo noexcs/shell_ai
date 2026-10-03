@@ -127,6 +127,17 @@ class ShellSession:
     def prompt_count(self) -> int:
         return len(re.findall(re.escape(PROMPT), self.text()))
 
+    def wait_next_prompt(self, timeout: float = AI_TIMEOUT) -> None:
+        """Block until the shell draws a *new* prompt — i.e. it is idle again.
+
+        Reading the buffer without this races the AI call: text from the failed
+        command can land on the same rendered line as the prompt.
+        """
+        before = self.prompt_count()
+        deadline = time.monotonic() + timeout
+        while self.prompt_count() <= before and time.monotonic() < deadline:
+            self._pump(0.2)
+
     def accept(self) -> None:
         """Deliver a pending suggestion.
 
@@ -138,12 +149,9 @@ class ShellSession:
         while the AI call is still running is consumed by the tty before readline
         arms the handler (measured).
         """
+        self.wait_next_prompt()
         if self.shell != "bash":
             return
-        before = self.prompt_count()
-        deadline = time.monotonic() + AI_TIMEOUT
-        while self.prompt_count() <= before and time.monotonic() < deadline:
-            self._pump(0.2)
         self.send("\r")
         self._pump(2.5)
 
@@ -241,6 +249,7 @@ class Scenario:
         self.description = description
         self.checks: list[tuple[str, bool]] = []
         self.transcript = ""
+        self.log_text = ""
 
     def check(self, label: str, ok: object) -> None:
         self.checks.append((label, bool(ok)))
@@ -260,6 +269,7 @@ def run_scenario(name: str, description: str, body, log_path: str, shell: str) -
         scenario.check(f"scenario completed ({type(error).__name__}: {error})", False)
     finally:
         scenario.transcript = session.since(mark)
+        scenario.log_text = session.log()
         session.close()
     return scenario
 
@@ -281,6 +291,7 @@ def scenario_a1(scenario: Scenario, session: ShellSession, mark: int) -> None:
 def scenario_a2(scenario: Scenario, session: ShellSession, mark: int) -> None:
     session.send("dockre ps\r")
     scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    session.wait_next_prompt()
     session.accept()
     buffer = session.wait_buffer(lambda value: value.startswith("docker"))
     text = session.since(mark)
@@ -297,6 +308,7 @@ def scenario_a3(scenario: Scenario, session: ShellSession, mark: int) -> None:
     phrase = "帮我找出当前目录最大的10个文件"
     session.send(phrase + "\r")
     scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    session.wait_next_prompt()
     session.accept()
     suggestion = session.wait_buffer(
         lambda value: value != "" and shutil.which(value.split()[0]) is not None
@@ -305,9 +317,11 @@ def scenario_a3(scenario: Scenario, session: ShellSession, mark: int) -> None:
     if session.shell == "zsh":
         scenario.check("phrase was not executed as a command", f"command not found: {phrase[:2]}" not in text)
     else:
-        # bash has no pre-execution hook, so the line runs and lands in the
-        # command-not-found path instead (documented difference).
-        scenario.check("bash routed it through command-not-found", "command not found" in text)
+        # bash has no pre-execution hook: the line runs, but the command-not-found
+        # handler recognises a question and answers it as one — the shell's own
+        # "command not found" line is suppressed so the UX matches zsh.
+        scenario.check("bash answered it as a question", "command not found" not in text)
+        scenario.check("logged as a natural-language question", "trigger=nl" in session.log())
     scenario.check(
         "suggestion's first word is a real command",
         suggestion != "" and shutil.which(suggestion.split()[0]) is not None,
@@ -334,6 +348,7 @@ def scenario_a3(scenario: Scenario, session: ShellSession, mark: int) -> None:
 def scenario_a4(scenario: Scenario, session: ShellSession, mark: int) -> None:
     session.send("ls -Z\r")
     scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    session.wait_next_prompt()
     session.accept()
     buffer = session.wait_buffer(lambda value: value not in ("", "ls -Z"))
     text = session.since(mark)
@@ -347,6 +362,7 @@ def scenario_a4(scenario: Scenario, session: ShellSession, mark: int) -> None:
 def scenario_a5(scenario: Scenario, session: ShellSession, mark: int) -> None:
     session.send("dockre ps\r")
     scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    session.wait_next_prompt()
     session.accept()
     session.wait_buffer(lambda value: value.startswith("docker"))
     session.send("\x03")  # Ctrl+C instead of Enter
@@ -401,6 +417,8 @@ def report(scenario: Scenario, verbose: bool) -> None:
         print("       --- transcript tail ---")
         for line in scenario.transcript[-1200:].splitlines()[-20:]:
             print(f"       | {line}")
+        log = scenario.log_text.strip()
+        print(f"       --- log: {log if log != '' else '(空)'}")
 
 
 def main() -> int:
