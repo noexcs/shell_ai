@@ -51,6 +51,30 @@ test("multi-line suggestions keep every line", () => {
   assert.ok(output().includes("line two"));
 });
 
+test("blank lines inside the panel keep the bar column continuous", () => {
+  const { renderer, output } = capture(false);
+  renderer.text("第一段\n\n第二段\n");
+  renderer.suggestion("docker ps", "", "");
+  renderer.end();
+  assert.deepEqual(output().split("\n"), [
+    "",
+    "✦ AI — shell 助手",
+    "│ 第一段",
+    "│",
+    "│ 第二段",
+    "│ → docker ps",
+    "",
+    "",
+  ]);
+});
+
+test("the gap that ends the panel stays bare", () => {
+  const { renderer, output } = capture(false);
+  renderer.suggestion("docker ps", "", "model · 1.0s");
+  renderer.end();
+  assert.ok(output().endsWith("1.0s\n\n"), "panel ends with one bare blank line");
+});
+
 test("explanation is dropped when the model already wrote prose", () => {
   const { renderer, output } = capture(false);
   renderer.text("这个命令失败是因为 docker 的参数写法不对。");

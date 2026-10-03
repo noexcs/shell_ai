@@ -1,6 +1,6 @@
 {
   "name": "@noexcs/ai-shell",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "zsh 之上的 AI fallback 层：命令不存在/执行失败/自然语言时给出建议命令并填进真 shell buffer，AI 从不执行命令",
   "type": "module",
   "license": "UNLICENSED",

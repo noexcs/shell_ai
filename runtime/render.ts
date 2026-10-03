@@ -21,6 +21,9 @@ export interface Renderer {
   notice(text: string): void;
   /** `footer` is appended as the last dim line (model · latency). */
   suggestion(command: string, explanation: string, footer?: string): void;
+  /** Closes the panel with the single bare blank line that separates it from the
+   *  prompt.  Called once per invocation, after every notice/suggestion. */
+  end(): void;
 }
 
 export function createRenderer(out: NodeJS.WriteStream = process.stdout): Renderer {
@@ -43,14 +46,20 @@ export function createRenderer(out: NodeJS.WriteStream = process.stdout): Render
 
   const write = (s: string) => void out.write(s);
 
-  /** Writes with the panel's left bar at every line start (blank lines stay bare). */
+  /**
+   * Writes with the panel's left bar at every line start.
+   *
+   * Blank lines *inside* the panel get the bar too, otherwise the column breaks
+   * wherever the model emits a paragraph break (user-reported).  The single gap
+   * that ends the panel is written with a raw write() and stays bare.
+   */
   const writeBarred = (text: string) => {
     if (text === "") return;
     let buffer = "";
     for (const char of text) {
-      if (atLineStart && char !== "\n") {
-        buffer += dim(BAR);
+      if (atLineStart) {
         atLineStart = false;
+        buffer += char === "\n" ? dim("│") : dim(BAR);
       }
       buffer += char;
       if (char === "\n") atLineStart = true;
@@ -101,7 +110,7 @@ export function createRenderer(out: NodeJS.WriteStream = process.stdout): Render
         lineOpen = false;
       }
       openPanel();
-      writeBarred(`${text}\n\n`);
+      writeBarred(`${text}\n`);
     },
     suggestion(command, explanation, footer = "") {
       closeStatus();
@@ -118,8 +127,13 @@ export function createRenderer(out: NodeJS.WriteStream = process.stdout): Render
       // tool-call-only answers.
       if (explanation !== "" && !streamedText) writeBarred(`${dim(explanation)}\n`);
       if (footer !== "") writeBarred(`${dim(footer)}\n`);
-      // Trailing blank line: separates the panel from the prompt below, and gives
-      // ZLE a sacrificial line if it redraws the prompt over this widget's output.
+    },
+    end() {
+      if (!panelOpen) return;
+      closeStatus();
+      panelOpen = false;
+      lineOpen = false;
+      // The panel's only bare line: separates it from the prompt below.
       write("\n");
     },
   };

@@ -28,7 +28,7 @@ export interface DoctorOptions {
 }
 
 function silentRenderer(): Renderer {
-  return { status() {}, text() {}, notice() {}, suggestion() {} };
+  return { status() {}, text() {}, notice() {}, suggestion() {}, end() {} };
 }
 
 function userShell(): { name: "zsh" | "bash"; rc: string } {

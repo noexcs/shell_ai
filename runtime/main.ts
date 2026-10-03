@@ -138,6 +138,7 @@ async function ask(args: string[]): Promise<number> {
     if (suggestion === null) {
       renderer.notice("（没有给出命令建议）");
       verboseTail();
+      renderer.end();
       return EXIT_NO_SUGGESTION;
     }
     const withComment = args.includes("--comment")
@@ -149,6 +150,7 @@ async function ask(args: string[]): Promise<number> {
       withComment === null ? suggestion.explanation : "",
       cfg.verbose ? `${cfg.model} · ${latency()}` : "",
     );
+    renderer.end();
     writeAtomically(commandOut, finalCommand);
     return EXIT_OK;
   } catch (error) {
@@ -156,6 +158,7 @@ async function ask(args: string[]): Promise<number> {
     const unreachable = /fetch failed|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|timed out|timeout/i.test(detail);
     renderer.notice(`ai-shell: ${detail}${unreachable ? `（检查 ${cfg.baseUrl} 是否可达）` : ""}`);
     verboseTail();
+    renderer.end();
     return EXIT_ERROR;
   }
 }
