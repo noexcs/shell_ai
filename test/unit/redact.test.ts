@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isEnvMode, redactEnv } from "../../runtime/redact.ts";
+import { isEnvMode, redactEnv, redactOutput } from "../../runtime/redact.ts";
 
 const SAMPLE = [
   "PATH=/usr/bin:/bin",
@@ -51,4 +51,23 @@ test("lines without a value are left alone", () => {
 test("isEnvMode accepts only the three documented modes", () => {
   assert.ok(isEnvMode("redacted") && isEnvMode("full") && isEnvMode("none"));
   assert.ok(!isEnvMode("REDACTED") && !isEnvMode("yes") && !isEnvMode(""));
+});
+
+test("command output redaction masks common secret forms", () => {
+  const input = [
+    "request failed",
+    "OPENAI_API_KEY=sk-this-must-not-leak",
+    "Authorization: Bearer abcdefghijklmnop",
+    "github token ghp_abcdefghijklmnopqrst",
+  ].join("\n");
+  const { text, masked } = redactOutput(input, "redacted");
+  assert.ok(text.includes("request failed"));
+  assert.ok(!text.includes("this-must-not-leak"));
+  assert.ok(!text.includes("abcdefghijklmnop"));
+  assert.ok(masked.length >= 2);
+});
+
+test("command output can be omitted or sent in full explicitly", () => {
+  assert.equal(redactOutput("secret-ish output", "none").text, "");
+  assert.equal(redactOutput("secret-ish output", "full").text, "secret-ish output");
 });

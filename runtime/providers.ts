@@ -1,13 +1,13 @@
 /**
  * Provider presets. Model names change fast, so they are only *suggestions*:
- * `ai-shell doctor` proves the chosen model actually does tool calling instead
+ * `unstuck doctor` proves the chosen model actually does tool calling instead
  * of trusting this table.
  */
 
 export interface Provider {
   /** id used in config.json */
   id: string;
-  /** one-line description shown by `ai-shell setup` */
+  /** one-line description shown by `unstuck setup` */
   label: string;
   baseUrl: string;
   /** env vars to look for the key, in order */

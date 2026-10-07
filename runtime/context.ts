@@ -7,6 +7,8 @@
  * only place that knows the field order.
  */
 
+import type { CommandCapture } from "./capture.ts";
+
 export const CONTEXT_VERSION = "1";
 
 export const TRIGGERS = ["nl", "command_not_found", "non_zero_exit"] as const;
@@ -37,6 +39,8 @@ export interface ShellContext {
   commandOut: string;
   /** `uname -srm` — keeps suggested commands to tools the platform actually has. */
   platform: string;
+  /** Completed command data supplied by iZSH, when available and matched. */
+  capture: CommandCapture | null;
 }
 
 export class ContextError extends Error {}
@@ -104,5 +108,6 @@ export function buildContext(fields: string[]): ShellContext {
     env: truncateUtf8(envRaw, LIMITS.envBytes),
     commandOut,
     platform,
+    capture: null,
   };
 }

@@ -1,4 +1,9 @@
-# AI Shell MVP — 设计与技术方案（Spec）
+# Unstuck MVP — 设计与技术方案（Spec）
+
+> 历史说明：本文记录 0.1 阶段在没有命令输出采集时的设计。0.2 起由
+> [iZSH](https://github.com/noexcs/izsh) 产生 session-aware command events 和
+> stdout/stderr 文件，Unstuck 作为外部消费者读取并加入模型上下文。当前行为以
+> 根目录 README、`runtime/capture.ts` 和自动化测试为准。
 
 > 上游文档：`PRODUCTION_DESIGN.md`（产品约束，不得违背）。
 > 上游结论：2026-10-03 可行性实测（本文 §2 是其结论落地）。
@@ -75,7 +80,7 @@ accept-line widget
   └ 是 → zle -I（清提示符显示）
          node runtime ask --command-out $SESSION/pending < context  (阻塞、流式渲染面板)
          BUFFER=$(<$SESSION/pending); CURSOR=$#BUFFER
-         AI_SHELL_SUPPRESS_EXIT=1        # 防止随后 precmd 把旧的 $? 当新失败
+         UNSTUCK_SUPPRESS_EXIT=1        # 防止随后 precmd 把旧的 $? 当新失败
          rm -f $SESSION/pending
          zle reset-prompt
 ```
@@ -96,7 +101,7 @@ command_not_found_handler <cmd>
 ```
 precmd
   ├ [[ -f $SESSION/cnf-handled ]] → rm; skip           # S2 已处理
-  ├ [[ -n $AI_SHELL_SUPPRESS_EXIT ]] → unset; skip     # 上一行是 S1 拦截，$? 是陈旧的
+  ├ [[ -n $UNSTUCK_SUPPRESS_EXIT ]] → unset; skip     # 上一行是 S1 拦截，$? 是陈旧的
   ├ [[ $? -eq 0 || $? -eq 130 ]] → skip                # 成功 / 用户 Ctrl+C
   ├ [[ 命令名 ∈ IGNORE_LIST ]] → skip                  # 预期失败：grep/diff/test/…
   └ node runtime ask --command-out $SESSION/pending < context   # 面板在提示符之前
@@ -124,20 +129,20 @@ _ai_should_intercept() {
 runtime 直接把人类可读文本写到 stdout（zsh 不做 JSON 解析）：
 
 ```
-✦ AI — shell 助手
+✦ Unstuck
 │ <模型自然语言输出，逐 token 流式>
 │ → find . -type f -exec du -h {} + | sort -rh | head -n 10
 │ Qwen3.8-27B · 4.3s
 ```
 
-- 模型的思考流（reasoning_content）默认只用于一行状态 `正在分析…`，内容不打印；`AI_SHELL_SHOW_THINKING=1` 时打印。状态行在请求发出时就显示，不等首个 token——自建 vLLM 不一定推 reasoning delta。
+- 模型的思考流（reasoning_content）默认只用于一行状态 `正在分析…`，内容不打印；`UNSTUCK_SHOW_THINKING=1` 时打印。状态行在请求发出时就显示，不等首个 token——自建 vLLM 不一定推 reasoning delta。
 - 面板内容每行前缀一个 dim 的 `│ `：AI 输出必须与命令输出一眼可分（用户实测反馈），且纯文本、不依赖终端能力。空行不加前缀。
 - 面板前**始终**有一个空行，把面板与上面的内容（命令输出、报错、被拦截的那行）分开。
 - `→` 而不是 `❯` 标记建议命令：starship 等提示符本身就用 `❯`，同形会让面板那行看起来像"命令已经执行过"。
 - 解释的处理：模型给了自然语言时，`suggest_command.explanation` 折叠成**行尾注释**附在命令后（随命令进历史）；仅当 shell 开启 `interactive_comments` 时才这样做（`--comment` 标志），否则 `# …` 会被当作参数，此时回退为面板里的独立一行。命令以 `|`/`&`/`\`/`,`/`(`/`=` 结尾时同样回退（注释会被语法吞掉）。
-- 面板末尾一行 dim 的 `模型 · 耗时`（`AI_SHELL_VERBOSE=0` 关闭）。不打印"Enter 执行…"之类的操作提示——用户对 Enter 的预期不需要教。
+- 面板末尾一行 dim 的 `模型 · 耗时`（`UNSTUCK_VERBOSE=0` 关闭）。不打印"Enter 执行…"之类的操作提示——用户对 Enter 的预期不需要教。
 - 面板末尾再空一行：把面板与下面的提示符分开；同时它是"牺牲行"——ZLE 在 widget 内重绘提示符时若覆盖最后一行，被吃掉的是空行而不是 `模型 · 耗时`。
-- 颜色仅在 `[ -t 1 ]` 时输出；`AI_SHELL_NO_COLOR=1` 关闭。
+- 颜色仅在 `[ -t 1 ]` 时输出；`UNSTUCK_NO_COLOR=1` 关闭。
 
 ### 4.3 上下文协议（stdin，NUL 分隔，固定顺序）
 
@@ -177,10 +182,10 @@ env/history 在 runtime 侧截断：env 最多 8 KiB、history 最多 40 行（�
 ### 4.6 会话状态
 
 ```
-AI_SHELL_SESSION_DIR=${TMPDIR:-/tmp}/ai-shell-$UID-$ZSH_PID
+UNSTUCK_SESSION_DIR=${TMPDIR:-/tmp}/unstuck-$UID-$ZSH_PID
   pending        建议命令（单槽，读到即删）
   cnf-handled    S2→S3 抑制标记
-  log            AI_SHELL_LOG=1 时的调用记录（触发原因、耗时、是否写建议）
+  log            UNSTUCK_LOG=1 时的调用记录（触发原因、耗时、是否写建议）
 ```
 
 目录在插件加载时创建，`zshexit` 时删除。多 shell 会话天然隔离。
@@ -188,12 +193,12 @@ AI_SHELL_SESSION_DIR=${TMPDIR:-/tmp}/ai-shell-$UID-$ZSH_PID
 ## 5. 文件布局
 
 ```
-shell_ai/
+unstuck/
 ├── PRODUCTION_DESIGN.md
-├── docs/superpowers/specs/2026-10-03-ai-shell-mvp-design.md   ← 本文
+├── docs/specs/2026-10-03-unstuck-mvp-design.md   ← 本文
 ├── package.json                     # deps: ai@7, @ai-sdk/openai-compatible, zod@4
 ├── plugin/zsh/
-│   ├── ai-shell.zsh                 # 入口：路径解析、会话目录、开关、加载子模块
+│   ├── unstuck.zsh                 # 入口：路径解析、会话目录、开关、加载子模块
 │   ├── context.zsh                  # NUL 上下文构造 + runtime 调用 + 日志
 │   ├── accept-line.zsh              # S1 判定与拦截
 │   ├── cnf.zsh                      # S2 command_not_found_handler
@@ -217,24 +222,24 @@ shell_ai/
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
-| `AI_SHELL_DISABLE` | 空 | `1` = 完全停用（所有触发点短路） |
-| `AI_SHELL_PROVIDER` | 配置文件 | 预设名（openai/anthropic/deepseek/openrouter/groq/ollama/lmstudio/vllm） |
-| `AI_SHELL_BASE_URL` | 由 provider 决定 | OpenAI 兼容端点 |
-| `AI_SHELL_API_KEY` | 空 | 直接给 key（优先级高于钥匙串） |
-| `AI_SHELL_MODEL` | 由 provider 决定 | 传给 provider 的 model id |
-| `AI_SHELL_ENV_MODE` | `redacted` | `redacted`/`full`/`none`；`full` 会把含密钥的完整 env 发给端点 |
-| `AI_SHELL_BIN` / `AI_SHELL_PLUGIN_DIR` | 自动探测 | 指定 runtime 二进制 / zsh 插件目录 |
-| `AI_SHELL_TIMEOUT_MS` | `60000` | 单次调用超时（AbortSignal）。自建 Qwen3.8-27B 实测 6–12s、偶发 >20s，故默认放宽；超时可用 Ctrl+C 提前中断 |
-| `AI_SHELL_LOG` | 空 | `1` = 写调用日志（e2e 用它断言"正常命令未调用 AI"） |
-| `AI_SHELL_LOG_FILE` | `$AI_SHELL_SESSION_DIR/log` | 日志路径；沙箱固定指向 `<repo>/.ai-shell-e2e/log` |
-| `AI_SHELL_SHOW_THINKING` | 空 | `1` = 打印 reasoning |
-| `AI_SHELL_VERBOSE` | 开 | 置 `0` 关闭提示行尾部的 `模型 · 耗时` |
-| `AI_SHELL_NO_COLOR` | 空 | `1` = 关闭颜色 |
-| `AI_SHELL_MAX_EXIT_AI` | `3` | 连续失败触发上限，防刷屏 |
-| `AI_SHELL_IGNORE_EXTRA` | 空 | 额外"非零退出属正常"的命令名（空格分隔），补在内置 `AI_SHELL_IGNORE` 之上；只匹配命令首词 |
-| `AI_SHELL_BASE_URL` / `AI_SHELL_API_KEY` | 由 provider 决定 | 端点与鉴权；未配置时 runtime 提示运行 `ai-shell setup`（不猜端点，shell 不受影响） |
+| `UNSTUCK_DISABLE` | 空 | `1` = 完全停用（所有触发点短路） |
+| `UNSTUCK_PROVIDER` | 配置文件 | 预设名（openai/anthropic/deepseek/openrouter/groq/ollama/lmstudio/vllm） |
+| `UNSTUCK_BASE_URL` | 由 provider 决定 | OpenAI 兼容端点 |
+| `UNSTUCK_API_KEY` | 空 | 直接给 key（优先级高于钥匙串） |
+| `UNSTUCK_MODEL` | 由 provider 决定 | 传给 provider 的 model id |
+| `UNSTUCK_ENV_MODE` | `redacted` | `redacted`/`full`/`none`；`full` 会把含密钥的完整 env 发给端点 |
+| `UNSTUCK_BIN` / `UNSTUCK_PLUGIN_DIR` | 自动探测 | 指定 runtime 二进制 / zsh 插件目录 |
+| `UNSTUCK_TIMEOUT_MS` | `60000` | 单次调用超时（AbortSignal）。自建 Qwen3.8-27B 实测 6–12s、偶发 >20s，故默认放宽；超时可用 Ctrl+C 提前中断 |
+| `UNSTUCK_LOG` | 空 | `1` = 写调用日志（e2e 用它断言"正常命令未调用 AI"） |
+| `UNSTUCK_LOG_FILE` | `$UNSTUCK_SESSION_DIR/log` | 日志路径；沙箱固定指向 `<repo>/.unstuck-e2e/log` |
+| `UNSTUCK_SHOW_THINKING` | 空 | `1` = 打印 reasoning |
+| `UNSTUCK_VERBOSE` | 开 | 置 `0` 关闭提示行尾部的 `模型 · 耗时` |
+| `UNSTUCK_NO_COLOR` | 空 | `1` = 关闭颜色 |
+| `UNSTUCK_MAX_EXIT_AI` | `3` | 连续失败触发上限，防刷屏 |
+| `UNSTUCK_IGNORE_EXTRA` | 空 | 额外"非零退出属正常"的命令名（空格分隔），补在内置 `UNSTUCK_IGNORE` 之上；只匹配命令首词 |
+| `UNSTUCK_BASE_URL` / `UNSTUCK_API_KEY` | 由 provider 决定 | 端点与鉴权；未配置时 runtime 提示运行 `unstuck setup`（不猜端点，shell 不受影响） |
 
-**解析顺序**：内置默认 < `~/.config/ai-shell/config.json`（mode 600）< 环境变量 < 命令行参数。密钥不放在 config.json 的明文字段里：优先环境变量，其次系统钥匙串（`security`/`secret-tool`），最后才是 `secrets.json` 兜底。未配置时 `ask` 直接提示运行 `ai-shell setup`，不猜端点。
+**解析顺序**：内置默认 < `~/.config/unstuck/config.json`（mode 600）< 环境变量 < 命令行参数。密钥不放在 config.json 的明文字段里：优先环境变量，其次系统钥匙串（`security`/`secret-tool`），最后才是 `secrets.json` 兜底。未配置时 `ask` 直接提示运行 `unstuck setup`，不猜端点。
 
 ## 7. 验收标准（可执行）
 
@@ -255,8 +260,8 @@ shell_ai/
 2. 长命令实时 AI：**无限期推迟**。
 3. 调用模式：**阻塞式、无常驻 daemon**。
 4. env：**完整注入**（已接受密钥外发风险）。
-5. MVP 场景：**三场景全做**，S3 带忽略名单与 `AI_SHELL_DISABLE` 开关。
-6. 接入方式：**沙箱 ZDOTDIR**，提供 `ai-shell install` 但绝不自动改 `~/.zshrc`。
+5. MVP 场景：**三场景全做**，S3 带忽略名单与 `UNSTUCK_DISABLE` 开关。
+6. 接入方式：**沙箱 ZDOTDIR**，提供 `unstuck install` 但绝不自动改 `~/.zshrc`。
 
 ## 9. 任务拆解（本次执行顺序）
 
@@ -264,7 +269,7 @@ shell_ai/
 
 1. **T1 runtime 骨架**：`package.json` + `context.ts`（NUL 解析与截断）+ 单测 → `node --test` 绿。
 2. **T2 agent + render**：`prompt.ts` / `agent.ts` / `render.ts`；手工 CLI 冒烟：喂一段 NUL 上下文，观察面板与 `--command-out` 内容。
-3. **T3 zsh 插件**：`ai-shell.zsh` + `context.zsh` + `accept-line.zsh`（S1 先跑通）。
+3. **T3 zsh 插件**：`unstuck.zsh` + `context.zsh` + `accept-line.zsh`（S1 先跑通）。
 4. **T4 S2/S3 与注入**：`cnf.zsh` + `lifecycle.zsh` + `inject.zsh`。
 5. **T5 沙箱与 e2e**：`sandbox/.zshrc` + `scripts/sandbox.sh` + `test/e2e.py`，跑 A1–A5。
 6. **T6 install/文档**：`install.ts` + README 使用说明（保持与本文一致）。
@@ -285,19 +290,19 @@ shell_ai/
 
 **目标形态**：单文件二进制 + Homebrew tap / install.sh；不依赖用户机器的 Node。
 
-- **二进制**：`scripts/build.sh` 用 `bun build --compile` 产出 `dist/ai-shell`（本机 60MB、冷启动 48ms）。零原生模块，只链系统库，`otool -L` 可验证；`env -i ./dist/ai-shell ask` 实测可跑（PATH 里没有 node）。
-- **插件内嵌**：`scripts/gen-plugin.ts` 把 `plugin/zsh/*.zsh` 生成为 `runtime/generated/plugin.ts`，随二进制打包；`ai-shell install` 解出到 `~/.local/share/ai-shell/plugin/zsh/` 再写 `~/.zshrc`。这样 `import.meta.url` 指向 bun 虚拟路径的问题不再影响安装（`/$bunfs/...` 已验证会算错路径）。
-- **插件找 runtime**：`AI_SHELL_BIN` → PATH 上的 `ai-shell` → 开发时的 `node runtime/main.ts`。
+- **二进制**：`scripts/build.sh` 用 `bun build --compile` 产出 `dist/unstuck`（本机 60MB、冷启动 48ms）。零原生模块，只链系统库，`otool -L` 可验证；`env -i ./dist/unstuck ask` 实测可跑（PATH 里没有 node）。
+- **插件内嵌**：`scripts/gen-plugin.ts` 把 `plugin/zsh/*.zsh` 生成为 `runtime/generated/plugin.ts`，随二进制打包；`unstuck install` 解出到 `~/.local/share/unstuck/plugin/zsh/` 再写 `~/.zshrc`。这样 `import.meta.url` 指向 bun 虚拟路径的问题不再影响安装（`/$bunfs/...` 已验证会算错路径）。
+- **插件找 runtime**：`UNSTUCK_BIN` → PATH 上的 `unstuck` → 开发时的 `node runtime/main.ts`。
 - **BYOK**：不提供模型服务。`setup` 先探测本机 Ollama(11434)/LM Studio(1234)/vLLM(8000)，否则从 provider 预设里选；密钥存系统钥匙串；`doctor` 用一次真实调用验证所选模型**会调用工具**（这是架构的硬前提）。
 - **隐私默认值**：`env_mode=redacted`。BYOK 下用户的 key 就在自己的环境里，不脱敏等于把 A 家的 key 发给 B 家。脱敏在截断之前执行，避免名字被切半而漏匹配。
 - **分发前仍需**：macOS 签名/公证（Gatekeeper 会拦未签名二进制）、Linux glibc/musl 两种 target、以及把 `test/e2e.py` 扩成终端/插件管理器兼容矩阵。
 
 ## 12. ShellAdapter（多 shell，2026-10-03 起）
 
-核心（`plugin/lib/ai-shell-core.sh`）持有全部策略：触发判定、上下文组装、runtime 桥接、忽略名单、连击上限、pending 交付。每个 shell 只实现适配层：
+核心（`plugin/lib/unstuck-core.sh`）持有全部策略：触发判定、上下文组装、runtime 桥接、忽略名单、连击上限、pending 交付。每个 shell 只实现适配层：
 
 ```
-_ai_shell_adapter_init / _finish      注册/注销钩子
+_unstuck_adapter_init / _finish      注册/注销钩子
 _history <n>                          最近 n 条历史
 _command_exists <word>                本 shell 能否解析
 _supports_comment                     '#' 是否算注释（决定 --comment）
@@ -325,4 +330,4 @@ _doctor                               shell 侧自检输出
 - **空行不重置 `$?`**（两 shell 实测一致）→ 适配层用 `HISTCMD` 判断"是否真的执行了新命令"，否则空行会重复触发 S3、重复消耗模型。
 - 注释：bash 默认开 `interactive_comments`（建议直接带行尾注释）；zsh 默认关，需显式 `setopt`。
 
-**加一个新 shell 的步骤**：写 `plugin/<shell>/ai-shell.<ext>`（入口：定位 root、source core+adapter、`_ai_shell_setup`）与 `adapter.<ext>`；在 `runtime/install.ts` 的 `ENTRY`/`RC_FILE` 里登记；`test/e2e.py --shell <name>` 复用场景（差异用 `session.accept()` 与 shell 条件断言表达）。
+**加一个新 shell 的步骤**：写 `plugin/<shell>/unstuck.<ext>`（入口：定位 root、source core+adapter、`_unstuck_setup`）与 `adapter.<ext>`；在 `runtime/install.ts` 的 `ENTRY`/`RC_FILE` 里登记；`test/e2e.py --shell <name>` 复用场景（差异用 `session.accept()` 与 shell 条件断言表达）。

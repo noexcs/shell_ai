@@ -12,6 +12,6 @@ cd "$root"
 node scripts/gen-plugin.ts
 
 mkdir -p bin
-bun build --target=node --minify --outfile bin/ai-shell.js runtime/main.ts
-chmod +x bin/ai-shell.js
-ls -lh bin/ai-shell.js
+bun build --target=node --minify --outfile bin/unstuck.js runtime/main.ts
+chmod +x bin/unstuck.js
+ls -lh bin/unstuck.js

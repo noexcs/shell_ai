@@ -1,5 +1,5 @@
 /**
- * `ai-shell setup` — the only place that asks a human anything.
+ * `unstuck setup` — the only place that asks a human anything.
  *
  * BYOK: we never provide a model. The wizard probes for a local
  * OpenAI-compatible server first (best privacy story, zero cost), then falls
@@ -30,7 +30,7 @@ export async function runSetup(): Promise<number> {
     return 1;
   }
 
-  echo("ai-shell 配置向导（密钥只存本机：系统钥匙串优先，绝不写进 ~/.zshrc）");
+  echo("unstuck 配置向导（密钥只存本机：系统钥匙串优先，绝不写进 ~/.zshrc）");
   echo("");
 
   let detected: string | undefined;
@@ -77,7 +77,13 @@ export async function runSetup(): Promise<number> {
 
   readline.close();
 
-  const path = writeFileConfig({ provider: preset.id, base_url: baseUrl, model, env_mode: "redacted" });
+  const path = writeFileConfig({
+    provider: preset.id,
+    base_url: baseUrl,
+    model,
+    env_mode: "redacted",
+    output_mode: "redacted",
+  });
   echo(`已写入 ${path}（mode 600）`);
   if (apiKey !== "") {
     const store = await storeSecret(preset.id, apiKey);
@@ -86,7 +92,7 @@ export async function runSetup(): Promise<number> {
 
   echo("");
   echo("下一步：");
-  echo("  1) ai-shell doctor          # 验证端点与工具调用能力");
-  echo("  2) ai-shell install --write # 把插件写进 ~/.zshrc（若还没装）");
+  echo("  1) unstuck doctor          # 验证端点与工具调用能力");
+  echo("  2) unstuck install --write # 把插件写进 ~/.zshrc（若还没装）");
   return 0;
 }

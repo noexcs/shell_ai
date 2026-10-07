@@ -6,7 +6,7 @@ import { createRenderer } from "../../runtime/render.ts";
 // Colour depends on the ambient environment; pin it so isTTY alone decides.
 process.env.TERM = "xterm-256color";
 delete process.env.NO_COLOR;
-delete process.env.AI_SHELL_NO_COLOR;
+delete process.env.UNSTUCK_NO_COLOR;
 
 function capture(isTTY: boolean) {
   const chunks: string[] = [];
@@ -22,16 +22,16 @@ function capture(isTTY: boolean) {
 
 test("repeated identical status text is written once", () => {
   const { renderer, output } = capture(true);
-  for (let i = 0; i < 50; i++) renderer.status("✦ AI 正在分析…");
+  for (let i = 0; i < 50; i++) renderer.status("✦ Unstuck 正在分析…");
   assert.equal(output().split("正在分析").length - 1, 1);
 });
 
 test("status is cleared before the panel opens", () => {
   const { renderer, output } = capture(true);
-  renderer.status("✦ AI 正在分析…");
+  renderer.status("✦ Unstuck 正在分析…");
   renderer.text("解释一下");
   const text = output();
-  assert.equal(text.split("— shell 助手").length - 1, 1, "panel header printed once");
+  assert.equal(text.split("✦ Unstuck").length - 1, 2, "status and panel each show the brand once");
   assert.ok(text.includes("\r\x1b[K"), "status line is erased, not appended to");
   assert.ok(text.endsWith("解释一下"), "streamed text lands after the header");
 });
@@ -58,7 +58,7 @@ test("blank lines inside the panel keep the bar column continuous", () => {
   renderer.end();
   assert.deepEqual(output().split("\n"), [
     "",
-    "✦ AI — shell 助手",
+    "✦ Unstuck",
     "│ 第一段",
     "│",
     "│ 第二段",
@@ -83,7 +83,7 @@ test("leading blank lines in the prose are dropped", () => {
   renderer.end();
   assert.deepEqual(output().split("\n"), [
     "",
-    "✦ AI — shell 助手",
+    "✦ Unstuck",
     "│ 解释在这里。",
     "│ → docker ps",
     "",

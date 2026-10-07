@@ -63,6 +63,7 @@ test("buildContext maps every field", () => {
   assert.equal(ctx.env, "PATH=/usr/bin");
   assert.equal(ctx.commandOut, "/tmp/session/pending");
   assert.equal(ctx.platform, "Darwin 27.0.0 arm64");
+  assert.equal(ctx.capture, null);
 });
 
 test("buildContext keeps only the most recent history lines", () => {

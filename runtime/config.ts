@@ -1,7 +1,7 @@
 /**
  * Configuration resolution. Precedence, lowest first:
  *
- *   built-in defaults  <  ~/.config/ai-shell/config.json  <  environment  <  CLI flags
+ *   built-in defaults  <  ~/.config/unstuck/config.json  <  environment  <  CLI flags
  *
  * The API key is never read from config.json's plain fields by preference: it
  * comes from the env or the OS keychain (see secret.ts).
@@ -19,6 +19,7 @@ export interface FileConfig {
   base_url?: string;
   model?: string;
   env_mode?: string;
+  output_mode?: string;
   timeout_ms?: number;
   verbose?: boolean;
 }
@@ -30,9 +31,10 @@ export interface ResolvedConfig {
   apiKey: string;
   apiKeySource: string;
   envMode: EnvMode;
+  outputMode: EnvMode;
   timeoutMs: number;
   verbose: boolean;
-  /** false ⇒ tell the user to run `ai-shell setup` instead of guessing */
+  /** false ⇒ tell the user to run `unstuck setup` instead of guessing */
   configured: boolean;
 }
 
@@ -61,16 +63,19 @@ export async function resolveConfig(
   overrides: { model?: string; timeoutMs?: number } = {},
 ): Promise<ResolvedConfig> {
   const file = readFileConfig();
-  const providerId = process.env.AI_SHELL_PROVIDER ?? file.provider ?? "";
+  const providerId = process.env.UNSTUCK_PROVIDER ?? file.provider ?? "";
   const preset = providerId === "" ? undefined : findProvider(providerId);
 
-  const baseUrl = process.env.AI_SHELL_BASE_URL ?? file.base_url ?? preset?.baseUrl ?? "";
-  const model = overrides.model ?? process.env.AI_SHELL_MODEL ?? file.model ?? preset?.model ?? "";
+  const baseUrl = process.env.UNSTUCK_BASE_URL ?? file.base_url ?? preset?.baseUrl ?? "";
+  const model = overrides.model ?? process.env.UNSTUCK_MODEL ?? file.model ?? preset?.model ?? "";
 
-  const envModeRaw = process.env.AI_SHELL_ENV_MODE ?? file.env_mode ?? "redacted";
+  const envModeRaw = process.env.UNSTUCK_ENV_MODE ?? file.env_mode ?? "redacted";
   const envMode: EnvMode = isEnvMode(envModeRaw) ? envModeRaw : "redacted";
 
-  const timeoutRaw = overrides.timeoutMs ?? Number(process.env.AI_SHELL_TIMEOUT_MS ?? file.timeout_ms ?? 60000);
+  const outputModeRaw = process.env.UNSTUCK_OUTPUT_MODE ?? file.output_mode ?? "redacted";
+  const outputMode: EnvMode = isEnvMode(outputModeRaw) ? outputModeRaw : "redacted";
+
+  const timeoutRaw = overrides.timeoutMs ?? Number(process.env.UNSTUCK_TIMEOUT_MS ?? file.timeout_ms ?? 60000);
   const timeoutMs = Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 60000;
 
   const key = providerId === "" ? null : await lookupSecret(providerId, preset?.keyEnv ?? []);
@@ -82,8 +87,9 @@ export async function resolveConfig(
     apiKey: key?.value ?? "",
     apiKeySource: key?.source ?? "(none)",
     envMode,
+    outputMode,
     timeoutMs,
-    verbose: process.env.AI_SHELL_VERBOSE !== "0" && file.verbose !== false,
+    verbose: process.env.UNSTUCK_VERBOSE !== "0" && file.verbose !== false,
     configured: providerId !== "" && baseUrl !== "" && model !== "",
   };
 }

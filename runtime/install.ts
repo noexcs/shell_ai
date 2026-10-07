@@ -1,9 +1,9 @@
 /**
- * `ai-shell install` / `uninstall` / `print-plugin`, per shell.
+ * `unstuck install` / `uninstall` / `print-plugin`, per shell.
  *
  * This is the only code that touches the user's shell configuration, and only
  * when `--write` is passed.  The plugin directory is resolved as: an explicit
- * AI_SHELL_PLUGIN_DIR, the in-repo checkout (development), or the copies
+ * UNSTUCK_PLUGIN_DIR, the in-repo checkout (development), or the copies
  * embedded in the binary — extracted under the user's data dir so a single-file
  * install still works with no loose files.
  */
@@ -14,14 +14,14 @@ import { dirname, join } from "node:path";
 
 import { PLUGIN_FILES } from "./generated/plugin.ts";
 
-const MARKER_START = "# >>> ai-shell >>>";
-const MARKER_END = "# <<< ai-shell <<<";
+const MARKER_START = "# >>> unstuck >>>";
+const MARKER_END = "# <<< unstuck <<<";
 
 export type ShellName = "zsh" | "bash";
 
 export const SHELLS: ShellName[] = ["zsh", "bash"];
 
-const ENTRY: Record<ShellName, string> = { zsh: "ai-shell.zsh", bash: "ai-shell.bash" };
+const ENTRY: Record<ShellName, string> = { zsh: "unstuck.zsh", bash: "unstuck.bash" };
 const RC_FILE: Record<ShellName, string> = { zsh: ".zshrc", bash: ".bashrc" };
 
 export interface InstallOptions {
@@ -41,7 +41,7 @@ function dataHome(): string {
 
 /** Where the embedded tree is unpacked (mirrors the repo layout). */
 export function extractRoot(): string {
-  return join(dataHome(), "ai-shell");
+  return join(dataHome(), "unstuck");
 }
 
 export function extractPlugin(): string {
@@ -55,9 +55,9 @@ export function extractPlugin(): string {
   return join(target, "plugin");
 }
 
-/** Directory holding <shell>/ai-shell.<ext>. */
+/** Directory holding <shell>/unstuck.<ext>. */
 export function resolvePluginDir(shell: ShellName): string {
-  const explicit = process.env.AI_SHELL_PLUGIN_DIR;
+  const explicit = process.env.UNSTUCK_PLUGIN_DIR;
   if (explicit !== undefined && explicit !== "") return explicit;
 
   const checkout = join(repoRoot(), "plugin");
@@ -77,7 +77,7 @@ function rcPath(shell: ShellName): string {
 
 /** Detection used when the user does not pass --shell. */
 export function detectShell(): ShellName {
-  const fromEnv = (process.env.AI_SHELL_SHELL ?? "").trim().replace(/^-/, "");
+  const fromEnv = (process.env.UNSTUCK_SHELL ?? "").trim().replace(/^-/, "");
   if (fromEnv === "zsh" || fromEnv === "bash") return fromEnv;
   const login = (process.env.SHELL ?? "").split("/").pop() ?? "";
   return login === "bash" ? "bash" : "zsh";
@@ -90,7 +90,7 @@ function applyWrite(options: InstallOptions, next: string, summary: string): num
     options.echo(next);
     return 0;
   }
-  const temp = `${path}.ai-shell.tmp`;
+  const temp = `${path}.unstuck.tmp`;
   writeFileSync(temp, next, "utf8");
   chmodSync(temp, 0o644);
   renameSync(temp, path);
@@ -107,16 +107,16 @@ export function runInstall(options: InstallOptions): number {
   if (current.includes(MARKER_START)) {
     const updated = current.replace(new RegExp(`${MARKER_START}[\\s\\S]*?${MARKER_END}`), block);
     if (updated === current) {
-      options.echo(`ai-shell 已在 ${path} 中登记（未改动）。`);
+      options.echo(`unstuck 已在 ${path} 中登记（未改动）。`);
       return 0;
     }
-    return applyWrite(options, updated, "已更新 ai-shell 加载行");
+    return applyWrite(options, updated, "已更新 unstuck 加载行");
   }
 
   const next = `${current.replace(/\n*$/, "")}\n\n${block}\n`;
-  const code = applyWrite(options, next, "已写入 ai-shell 加载行");
+  const code = applyWrite(options, next, "已写入 unstuck 加载行");
   if (options.write) {
-    options.echo("下一步：新开一个终端，或在当前 shell 执行 `ai-shell-reload`；配置模型用 `ai-shell setup`。");
+    options.echo("下一步：新开一个终端，或在当前 shell 执行 `unstuck-reload`；配置模型用 `unstuck setup`。");
   }
   return code;
 }
@@ -129,12 +129,12 @@ export function runUninstall(options: InstallOptions): number {
   }
   const current = readFileSync(path, "utf8");
   if (!current.includes(MARKER_START)) {
-    options.echo(`${path} 中没有 ai-shell 加载行。`);
+    options.echo(`${path} 中没有 unstuck 加载行。`);
     return 0;
   }
   const pattern = new RegExp(`\\n*${MARKER_START}[\\s\\S]*?${MARKER_END}\\n*`, "m");
   const next = current.replace(pattern, "\n").replace(/\n{3,}/g, "\n\n");
-  return applyWrite(options, next, "已删除 ai-shell 加载行");
+  return applyWrite(options, next, "已删除 unstuck 加载行");
 }
 
 /** For shell plugin managers that want the directory instead of an rc edit. */

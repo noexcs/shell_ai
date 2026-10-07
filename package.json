@@ -1,17 +1,17 @@
 {
-  "name": "@noexcs/ai-shell",
-  "version": "0.1.4",
-  "description": "zsh 之上的 AI fallback 层：命令不存在/执行失败/自然语言时给出建议命令并填进真 shell buffer，AI 从不执行命令",
+  "name": "@noexcs/unstuck",
+  "version": "0.2.0",
+  "description": "An AI fallback for your shell: understand failures, explain them, and place the next command in the real shell buffer",
   "type": "module",
   "license": "UNLICENSED",
   "bin": {
-    "ai-shell": "bin/ai-shell.js"
+    "unstuck": "bin/unstuck.js"
   },
   "files": [
     "bin/",
     "plugin/",
     "README.md",
-    "docs/superpowers/specs/"
+    "docs/specs/"
   ],
   "engines": {
     "node": ">=20"

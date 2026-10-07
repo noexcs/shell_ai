@@ -1,6 +1,6 @@
 /**
  * API-key storage. Order of preference:
- *   1. environment variable (provider-specific, then AI_SHELL_API_KEY)
+ *   1. environment variable (provider-specific, then UNSTUCK_API_KEY)
  *   2. OS keychain (macOS `security`, Linux `secret-tool`)
  *   3. config.json (plaintext, mode 600 — last resort, doctor warns about it)
  *
@@ -16,12 +16,12 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
-export const SERVICE = "ai-shell";
+export const SERVICE = "unstuck";
 
 export type SecretStore = "keychain" | "secret-tool" | "file";
 
 function configDir(): string {
-  return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "ai-shell");
+  return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "unstuck");
 }
 
 function secretFile(): string {
@@ -45,8 +45,8 @@ export async function lookupSecret(
     const value = process.env[name];
     if (value) return { value, source: `env:${name}` };
   }
-  const explicit = process.env.AI_SHELL_API_KEY;
-  if (explicit) return { value: explicit, source: "env:AI_SHELL_API_KEY" };
+  const explicit = process.env.UNSTUCK_API_KEY;
+  if (explicit) return { value: explicit, source: "env:UNSTUCK_API_KEY" };
 
   if (platform() === "darwin") {
     try {

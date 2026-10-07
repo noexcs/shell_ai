@@ -11,9 +11,9 @@ node scripts/gen-plugin.ts
 
 mkdir -p dist
 if [ -n "$target" ]; then
-  bun build --compile --target="$target" --outfile "dist/ai-shell-$target" runtime/main.ts
-  ls -lh "dist/ai-shell-$target"
+  bun build --compile --target="$target" --outfile "dist/unstuck-$target" runtime/main.ts
+  ls -lh "dist/unstuck-$target"
 else
-  bun build --compile --outfile dist/ai-shell runtime/main.ts
-  ls -lh dist/ai-shell
+  bun build --compile --outfile dist/unstuck runtime/main.ts
+  ls -lh dist/unstuck
 fi

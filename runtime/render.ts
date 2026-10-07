@@ -33,7 +33,7 @@ export interface Renderer {
 export function createRenderer(out: NodeJS.WriteStream = process.stdout): Renderer {
   const color =
     out.isTTY === true &&
-    process.env.AI_SHELL_NO_COLOR !== "1" &&
+    process.env.UNSTUCK_NO_COLOR !== "1" &&
     process.env.NO_COLOR !== "1" &&
     process.env.TERM !== "dumb";
 
@@ -86,7 +86,7 @@ export function createRenderer(out: NodeJS.WriteStream = process.stdout): Render
     // Always separate the panel from whatever is above it (shell output, the
     // failed command's error, or the intercepted line).
     write("\n");
-    write(`${cyan("✦ AI")} ${dim("— shell 助手")}\n`);
+    write(`${cyan("✦ Unstuck")}\n`);
     atLineStart = true;
   };
 

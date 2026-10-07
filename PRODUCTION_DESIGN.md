@@ -1,8 +1,13 @@
-# AI Shell — 产品设计与实现探索文档
+# Unstuck — 产品设计与实现探索文档
 
 > 本文档用于交给本地 Code Agent，作为项目实现、技术探索和架构决策的基础。
 >
 > **重要：本文档中“已确定”部分应视为产品约束；“待探索”部分允许 Code Agent 调研、实验和提出方案，但不得擅自改变已确定的核心产品原则。**
+>
+> **2026-10-07 状态更新：** Command Output Capture 已采用独立的
+> [iZSH](https://github.com/noexcs/izsh) producer 实现。iZSH 负责按 session 和
+> command 写事件及 stdout/stderr 文件；Unstuck 在 `command_end` 后做匹配、限量读取、
+> 脱敏和模型调用。本文后面的 PTY sidecar 等内容保留为历史方案比较，不再是当前架构。
 
 ---
 
@@ -10,7 +15,7 @@
 
 ## 1.1 产品定位
 
-这是一个运行在现有 Shell 之上的 **AI Shell Middleware / AI Fallback Layer**。
+这是一个运行在现有 Shell 之上的 **Unstuck Middleware / AI Fallback Layer**。
 
 它不是新的 Shell，也不是新的 Terminal Emulator，更不是一个传统意义上的 Code Agent。
 
@@ -365,7 +370,7 @@ $ docker ps -all
 
 unknown flag: --all
 
-┌─ ✦ AI ──────────────────────────────────────┐
+┌─ ✦ Unstuck ──────────────────────────────────────┐
 │                                              │
 │  `--all` 参数写法不正确。Docker 使用 `-a`   │
 │  表示查看所有容器。                          │
@@ -991,7 +996,7 @@ Zsh
 例如：
 
 ```text
-✦ AI
+✦ Unstuck
 
 这个命令失败是因为……
 
@@ -1122,13 +1127,13 @@ AI 用户体验应该支持 Streaming。
 理想过程：
 
 ```text
-✦ AI 正在分析...
+✦ Unstuck 正在分析...
 ```
 
 然后逐步出现：
 
 ```text
-✦ AI
+✦ Unstuck
 
 这个命令失败是因为 Docker 参数格式不正确……
 
@@ -1211,7 +1216,7 @@ Tool:
 Execution:
     用户按 Enter 执行
 
-AI Shell Permission:
+Unstuck Permission:
     不允许直接执行命令
 
 Terminal:
@@ -1449,11 +1454,11 @@ ShellAdapter
 可以从简单版本开始：
 
 ```text
-ai-shell/
+unstuck/
 │
 ├── plugin/
 │   └── zsh/
-│       ├── ai-shell.zsh
+│       ├── unstuck.zsh
 │       ├── accept-line.zsh
 │       ├── lifecycle.zsh
 │       ├── context.zsh
@@ -1510,7 +1515,7 @@ Zsh Plugin
     │
     │ local IPC
     ▼
-AI Shell Runtime
+Unstuck Runtime
     │
     ▼
 Vercel AI SDK
@@ -1552,7 +1557,7 @@ npm
 docker
 ```
 
-不能因为 AI Shell 的存在产生明显延迟。
+不能因为 Unstuck 的存在产生明显延迟。
 
 尤其：
 
@@ -1593,7 +1598,7 @@ timeout
 $ git status
 ```
 
-用户根本感觉不到 AI Shell 存在。
+用户根本感觉不到 Unstuck 存在。
 
 只有：
 
@@ -1611,7 +1616,7 @@ command not found
 才出现：
 
 ```text
-✦ AI
+✦ Unstuck
 ```
 
 ---

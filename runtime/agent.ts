@@ -44,7 +44,7 @@ export async function runAgent(
 ): Promise<Suggestion | null> {
   const timeoutMs = options.timeoutMs ?? 60000;
   const provider = createOpenAICompatible({
-    name: "ai-shell",
+    name: "unstuck",
     baseURL: options.baseUrl,
     // Local servers often ignore auth entirely; something must still be non-empty.
     apiKey: options.apiKey === "" ? "unused" : options.apiKey,
@@ -56,7 +56,7 @@ export async function runAgent(
 
   const startedAt = performance.now();
   const paintStatus = () =>
-    renderer.status(`✦ AI 正在分析… ${Math.floor((performance.now() - startedAt) / 1000)}s`);
+    renderer.status(`✦ Unstuck 正在分析… ${Math.floor((performance.now() - startedAt) / 1000)}s`);
   // Start waiting feedback immediately: not every server streams reasoning
   // deltas, and a frozen shell with no output reads as a hang.
   let ticker: NodeJS.Timeout | undefined;
@@ -85,7 +85,7 @@ export async function runAgent(
         renderer.text(part.text ?? "");
       } else if (part.type === "reasoning-delta" || part.type === "reasoning") {
         const delta = part.text ?? "";
-        if (process.env.AI_SHELL_SHOW_THINKING === "1") renderer.text(delta);
+        if (process.env.UNSTUCK_SHOW_THINKING === "1") renderer.text(delta);
       } else if (part.type === "tool-call") {
         if (part.toolName === "suggest_command") {
           const input = part.input as { command?: unknown; explanation?: unknown } | undefined;
@@ -107,7 +107,7 @@ export async function runAgent(
   }
 
   if (controller.signal.aborted) {
-    throw new Error(`AI 调用超时（${timeoutMs}ms），可用 AI_SHELL_TIMEOUT_MS 调整`);
+    throw new Error(`AI 调用超时（${timeoutMs}ms），可用 UNSTUCK_TIMEOUT_MS 调整`);
   }
   return suggestion;
 }

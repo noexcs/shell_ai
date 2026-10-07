@@ -1,5 +1,5 @@
 /**
- * `ai-shell doctor` — the gate between "configured" and "actually works".
+ * `unstuck doctor` — the gate between "configured" and "actually works".
  *
  * A shell assistant that silently produces nothing is worse than one that says
  * what is wrong, so this checks the shell side, the config side and — the only
@@ -42,14 +42,14 @@ function userShell(): { name: "zsh" | "bash"; rc: string } {
 async function shellReport(): Promise<string[]> {
   const shell = userShell();
   const lines: string[] = [];
-  const installed = existsSync(shell.rc) && readFileSync(shell.rc, "utf8").includes("# >>> ai-shell >>>");
-  lines.push(`${shell.rc.replace(homedir(), "~")} 加载行：${installed ? "已登记" : "未登记（运行 ai-shell install --write）"}`);
+  const installed = existsSync(shell.rc) && readFileSync(shell.rc, "utf8").includes("# >>> unstuck >>>");
+  lines.push(`${shell.rc.replace(homedir(), "~")} 加载行：${installed ? "已登记" : "未登记（运行 unstuck install --write）"}`);
 
   try {
-    const { stdout } = await run(shell.name, ["-ic", "ai-shell-doctor"], { timeout: 15000 });
+    const { stdout } = await run(shell.name, ["-ic", "unstuck-doctor"], { timeout: 15000 });
     for (const line of stdout.split("\n")) if (line.trim() !== "") lines.push(line.trim());
   } catch {
-    lines.push(`shell 侧自检：跳过（${shell.name} 里未加载插件，或 ai-shell-doctor 不存在）`);
+    lines.push(`shell 侧自检：跳过（${shell.name} 里未加载插件，或 unstuck-doctor 不存在）`);
   }
   return lines;
 }
@@ -65,7 +65,7 @@ async function probeToolCalling(baseUrl: string, apiKey: string, model: string, 
     "non_zero_exit",
     "",
     "PATH=/usr/bin",
-    "/tmp/ai-shell-doctor-pending",
+    "/tmp/unstuck-doctor-pending",
     "doctor",
   ]);
   const started = performance.now();
@@ -77,7 +77,7 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
   const echo = options.echo;
   let problems = 0;
 
-  echo(`ai-shell ${VERSION}`);
+  echo(`unstuck ${VERSION}`);
   echo("");
   echo("== shell 侧 ==");
   for (const line of await shellReport()) echo(`  ${line}`);
@@ -86,7 +86,7 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
   echo("== 配置 ==");
   const cfg = await resolveConfig();
   if (!cfg.configured) {
-    echo("  ✗ 未配置。运行 ai-shell setup（或写 " + configPath() + "）");
+    echo("  ✗ 未配置。运行 unstuck setup（或写 " + configPath() + "）");
     return 1;
   }
   echo(`  provider : ${cfg.provider}`);
@@ -94,6 +94,7 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
   echo(`  model    : ${cfg.model}`);
   echo(`  api key  : ${cfg.apiKey === "" ? "（无，本地端点通常不需要）" : `已提供（来源 ${cfg.apiKeySource}）`}`);
   echo(`  env_mode : ${cfg.envMode}${cfg.envMode === "full" ? "  ⚠️ 完整 env（含密钥）会发给端点" : ""}`);
+  echo(`  output   : ${cfg.outputMode}${cfg.outputMode === "full" ? "  ⚠️ 命令输出不脱敏" : ""}`);
   echo(`  timeout  : ${cfg.timeoutMs}ms`);
 
   echo("");

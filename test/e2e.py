@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""End-to-end acceptance for ai-shell, driven through real ptys.
+"""End-to-end acceptance for unstuck, driven through real ptys.
 
-Scenarios (see docs/superpowers/specs/2026-10-03-ai-shell-mvp-design.md §7):
+Scenarios (see docs/specs/2026-10-03-unstuck-mvp-design.md §7):
 
   A1  normal commands behave like stock zsh and never call the LLM
   A2  command-not-found → panel + suggestion in the buffer, no duplicate S3 run
@@ -36,8 +36,8 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SANDBOX = os.path.join(ROOT, "sandbox")
-LOG_DIR = os.path.join(ROOT, ".ai-shell-e2e")
-PROMPT = "SHELLAI> "
+LOG_DIR = os.path.join(ROOT, ".unstuck-e2e")
+PROMPT = "UNSTUCK> "
 AI_TIMEOUT = 30.0
 
 
@@ -109,11 +109,11 @@ class ShellSession:
                 TERM="xterm-256color",
                 LANG="en_US.UTF-8",
                 LC_ALL="en_US.UTF-8",
-                AI_SHELL_LOG="1",
-                AI_SHELL_LOG_FILE=log_path,
+                UNSTUCK_LOG="1",
+                UNSTUCK_LOG_FILE=log_path,
                 # Exercises the distributed layout: the plugin uses this binary
                 # instead of `node runtime/main.ts`.
-                AI_SHELL_BIN=os.environ.get("AI_SHELL_BIN", ""),
+                UNSTUCK_BIN=os.environ.get("UNSTUCK_BIN", ""),
             )
             if shell == "bash":
                 os.environ.pop("ZDOTDIR", None)
@@ -282,7 +282,7 @@ def scenario_a1(scenario: Scenario, session: ShellSession, mark: int) -> None:
         session._pump(0.7)
     text = session.since(mark)
     scenario.check("echo produced output", "hi" in text)
-    scenario.check("no AI panel", "✦ AI" not in text)
+    scenario.check("no AI panel", "✦ Unstuck" not in text)
     scenario.check("log stayed empty", session.log().strip() == "")
 
 
@@ -290,7 +290,7 @@ def scenario_a1(scenario: Scenario, session: ShellSession, mark: int) -> None:
 
 def scenario_a2(scenario: Scenario, session: ShellSession, mark: int) -> None:
     session.send("dockre ps\r")
-    scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    scenario.check("panel appeared", session.wait_for("✦ Unstuck", AI_TIMEOUT, mark))
     session.wait_next_prompt()
     session.accept()
     buffer = session.wait_buffer(lambda value: value.startswith("docker"))
@@ -311,7 +311,7 @@ def scenario_a2(scenario: Scenario, session: ShellSession, mark: int) -> None:
 def scenario_a3(scenario: Scenario, session: ShellSession, mark: int) -> None:
     phrase = "帮我找出当前目录最大的10个文件"
     session.send(phrase + "\r")
-    scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    scenario.check("panel appeared", session.wait_for("✦ Unstuck", AI_TIMEOUT, mark))
     session.wait_next_prompt()
     session.accept()
     suggestion = session.wait_buffer(
@@ -351,7 +351,7 @@ def scenario_a3(scenario: Scenario, session: ShellSession, mark: int) -> None:
 
 def scenario_a4(scenario: Scenario, session: ShellSession, mark: int) -> None:
     session.send("ls -Z\r")
-    scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    scenario.check("panel appeared", session.wait_for("✦ Unstuck", AI_TIMEOUT, mark))
     session.wait_next_prompt()
     session.accept()
     buffer = session.wait_buffer(lambda value: value not in ("", "ls -Z"))
@@ -365,7 +365,7 @@ def scenario_a4(scenario: Scenario, session: ShellSession, mark: int) -> None:
 
 def scenario_a5(scenario: Scenario, session: ShellSession, mark: int) -> None:
     session.send("dockre ps\r")
-    scenario.check("panel appeared", session.wait_for("✦ AI", AI_TIMEOUT, mark))
+    scenario.check("panel appeared", session.wait_for("✦ Unstuck", AI_TIMEOUT, mark))
     session.wait_next_prompt()
     session.accept()
     session.wait_buffer(lambda value: value.startswith("docker"))
@@ -383,7 +383,7 @@ def scenario_a5(scenario: Scenario, session: ShellSession, mark: int) -> None:
 def scenario_a6(scenario: Scenario, session: ShellSession, mark: int) -> None:
     """The context builder must not ship credential-shaped values to the provider."""
     real_secret = os.environ.get("DEEPSEEK_API_KEY", "")
-    session.send("_ai_shell_context nl x x 0 | ${AI_SHELL_CMD[@]} debug --print-context\r")
+    session.send("_unstuck_context nl x x 0 | ${UNSTUCK_CMD[@]} debug --print-context\r")
     session._pump(4.0)
     text = session.since(mark)
     dump = [line.strip() for line in text.splitlines()]
@@ -426,7 +426,7 @@ def report(scenario: Scenario, verbose: bool) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="ai-shell pty acceptance suite")
+    parser = argparse.ArgumentParser(description="unstuck pty acceptance suite")
     parser.add_argument("--only", nargs="+", choices=sorted(SCENARIOS), default=None)
     parser.add_argument("--skip", nargs="+", choices=sorted(SCENARIOS), default=[])
     parser.add_argument("--jobs", type=int, default=3, help="scenarios to run at once (default 3)")

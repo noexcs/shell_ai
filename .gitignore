@@ -1,7 +1,7 @@
 node_modules/
 dist/
 bin/
-.ai-shell-e2e/
+.unstuck-e2e/
 sandbox/.zsh_history
 sandbox/.zsh_sessions/
 .DS_Store

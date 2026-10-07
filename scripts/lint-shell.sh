@@ -12,11 +12,11 @@ check() {
   file=$1
   shell=$2
   if command -v "$shell" >/dev/null 2>&1; then
-    if "$shell" -n "$file" 2>/tmp/ai-shell-lint.err; then
+    if "$shell" -n "$file" 2>/tmp/unstuck-lint.err; then
       printf 'ok   %-42s (%s)\n' "$file" "$shell"
     else
       printf 'FAIL %-42s (%s)\n' "$file" "$shell"
-      sed 's/^/     /' /tmp/ai-shell-lint.err
+      sed 's/^/     /' /tmp/unstuck-lint.err
       fail=1
     fi
   else

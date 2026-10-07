@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ai-shell CLI.
+ * unstuck CLI.
  *
  *   ask           fallback path called by the zsh plugin (NUL context on stdin)
  *   setup         interactive BYOK configuration wizard
@@ -14,6 +14,7 @@
 import { renameSync, writeFileSync } from "node:fs";
 
 import { ContextError, ENV_FIELD_INDEX, buildContext, splitNulFields } from "./context.ts";
+import { readIzshCapture } from "./capture.ts";
 import { runAgent } from "./agent.ts";
 import { resolveConfig, type ResolvedConfig } from "./config.ts";
 import { runDoctor } from "./doctor.ts";
@@ -21,7 +22,7 @@ import { promptHidden } from "./hidden-input.ts";
 import { detectShell, printPluginDir, runInstall, runUninstall, type ShellName } from "./install.ts";
 import { buildUserPrompt } from "./prompt.ts";
 import { findProvider } from "./providers.ts";
-import { redactEnv } from "./redact.ts";
+import { redactEnv, redactOutput } from "./redact.ts";
 import { createRenderer } from "./render.ts";
 import { forgetSecret, storeSecret } from "./secret.ts";
 import { runSetup } from "./setup.ts";
@@ -78,7 +79,17 @@ async function readRedactedContext(cfg: ResolvedConfig) {
   }
   const ctx = buildContext(fields);
   ctx.env = ctx.env === "" ? "（未发送环境变量）" : ctx.env;
-  return { ctx, masked };
+  const capture = await readIzshCapture(ctx);
+  let outputMasked: string[] = [];
+  if (capture !== null && cfg.outputMode !== "none") {
+    const stdout = redactOutput(capture.stdout.text, cfg.outputMode);
+    const stderr = redactOutput(capture.stderr.text, cfg.outputMode);
+    capture.stdout.text = stdout.text;
+    capture.stderr.text = stderr.text;
+    outputMasked = [...new Set([...stdout.masked, ...stderr.masked])];
+    ctx.capture = capture;
+  }
+  return { ctx, masked, outputMasked };
 }
 
 function shellFlag(args: string[]): ShellName {
@@ -97,7 +108,7 @@ async function ask(args: string[]): Promise<number> {
   });
 
   if (!cfg.configured) {
-    renderer.notice("ai-shell: 还没配置模型端点 —— 运行 `ai-shell setup`");
+    renderer.notice("unstuck: 还没配置模型端点 —— 运行 `unstuck setup`");
     return EXIT_ERROR;
   }
 
@@ -105,9 +116,9 @@ async function ask(args: string[]): Promise<number> {
   // at the fix instead of firing a request that returns 401.
   const preset = findProvider(cfg.provider);
   if (cfg.apiKey === "" && (preset?.keyEnv.length ?? 0) > 0) {
-    const hint = preset?.keyEnv[0] ?? "AI_SHELL_API_KEY";
+    const hint = preset?.keyEnv[0] ?? "UNSTUCK_API_KEY";
     renderer.notice(
-      `ai-shell: 没找到 ${cfg.provider} 的 API key —— 运行 \`ai-shell auth set ${cfg.provider}\`，或设置 ${hint}`,
+      `unstuck: 没找到 ${cfg.provider} 的 API key —— 运行 \`unstuck auth set ${cfg.provider}\`，或设置 ${hint}`,
     );
     return EXIT_ERROR;
   }
@@ -117,7 +128,7 @@ async function ask(args: string[]): Promise<number> {
     ({ ctx } = await readRedactedContext(cfg));
   } catch (error) {
     const detail = error instanceof ContextError ? error.message : String(error);
-    createRenderer().notice(`ai-shell: 上下文解析失败（${detail}）`);
+    createRenderer().notice(`unstuck: 上下文解析失败（${detail}）`);
     return EXIT_ERROR;
   }
 
@@ -157,25 +168,29 @@ async function ask(args: string[]): Promise<number> {
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     const unreachable = /fetch failed|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|timed out|timeout/i.test(detail);
-    renderer.notice(`ai-shell: ${detail}${unreachable ? `（检查 ${cfg.baseUrl} 是否可达）` : ""}`);
+    renderer.notice(`unstuck: ${detail}${unreachable ? `（检查 ${cfg.baseUrl} 是否可达）` : ""}`);
     verboseTail();
     renderer.end();
     return EXIT_ERROR;
   }
 }
 
-/** `ai-shell debug --print-context` — show the exact prompt, no model call. */
+/** `unstuck debug --print-context` — show the exact prompt, no model call. */
 async function debug(args: string[]): Promise<number> {
   if (!args.includes("--print-context")) {
-    console.log("用法：ai-shell debug --print-context   （从 stdin 读 NUL 上下文并打印将要发送的内容）");
+    console.log("用法：unstuck debug --print-context   （从 stdin 读 NUL 上下文并打印将要发送的内容）");
     return EXIT_OK;
   }
   const cfg = await resolveConfig();
-  const { ctx, masked } = await readRedactedContext(cfg);
+  const { ctx, masked, outputMasked } = await readRedactedContext(cfg);
   if (cfg.envMode === "redacted" && masked.length > 0) {
     console.log(`# 已脱敏 ${masked.length} 个变量：${masked.join(", ")}`);
-    console.log("# 需要完整 env 时设置 AI_SHELL_ENV_MODE=full（不推荐）\n");
+    console.log("# 需要完整 env 时设置 UNSTUCK_ENV_MODE=full（不推荐）");
   }
+  if (cfg.outputMode === "redacted" && outputMasked.length > 0) {
+    console.log(`# 命令输出已做尽力脱敏：${outputMasked.join(", ")}`);
+  }
+  if (masked.length > 0 || outputMasked.length > 0) console.log("");
   console.log(buildUserPrompt(ctx));
   return EXIT_OK;
 }
@@ -184,7 +199,7 @@ async function auth(args: string[]): Promise<number> {
   const [action, provider] = args;
   const target = provider ?? (await resolveConfig()).provider;
   if (target === "") {
-    console.log("用法：ai-shell auth set|rm|status <provider>");
+    console.log("用法：unstuck auth set|rm|status <provider>");
     return EXIT_ERROR;
   }
   if (action === "set") {
@@ -202,14 +217,14 @@ async function auth(args: string[]): Promise<number> {
     console.log(`key 来源：${cfg.apiKeySource}`);
     return EXIT_OK;
   }
-  console.log("用法：ai-shell auth set|rm|status <provider>");
+  console.log("用法：unstuck auth set|rm|status <provider>");
   return EXIT_ERROR;
 }
 
 function usage(): string {
   return [
-    `ai-shell ${VERSION}`,
-    "用法：ai-shell <command>",
+    `unstuck ${VERSION}`,
+    "用法：unstuck <command>",
     "  ask [--command-out PATH] [--model ID] [--timeout MS] [--comment]   从 stdin 读 NUL 分隔上下文，输出面板并把建议写入 PATH",
     "  setup                                                              交互式配置模型端点（BYOK）",
     "  doctor                                                             自检：插件、配置、端点、工具调用能力",
@@ -243,7 +258,7 @@ async function main(): Promise<number> {
     case "uninstall":
       return runUninstall({ write: args.includes("--write"), shell: shellFlag(args), echo: console.log });
     case "version":
-      console.log(`ai-shell ${VERSION}`);
+      console.log(`unstuck ${VERSION}`);
       return EXIT_OK;
     default:
       console.log(usage());
@@ -254,6 +269,6 @@ async function main(): Promise<number> {
 main()
   .then((code) => process.exit(code))
   .catch((error: unknown) => {
-    console.error(`ai-shell: 未捕获错误：${error instanceof Error ? error.message : String(error)}`);
+    console.error(`unstuck: 未捕获错误：${error instanceof Error ? error.message : String(error)}`);
     process.exit(EXIT_ERROR);
   });

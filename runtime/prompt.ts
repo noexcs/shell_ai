@@ -21,6 +21,7 @@ export const SYSTEM_PROMPT = `你是嵌入 zsh 的命令行助手。用户正在
 - explanation 字段会以行尾注释的形式展示在命令后面（例如：docker ps 后跟 # 查看所有容器），所以它必须是一句**不超过 40 字的理由**，并且正文**不要重复**这句话——正文只在需要补充注释放不下的信息时才写，否则留空。
 - 不要解释 shell 的报错机制：不要说"shell 把它当成了命令名"、"退出码 127 表示找不到命令"、"这不代表命令不存在"这类话。用户已经在终端里看到原始报错了，这类说明是噪音。解释只针对**原因与解法**。
 - 若失败原因不是命令写法（服务没启动、权限不足、网络不通、目标不存在等），就直接说明这个原因，并给出排查或启动命令（例如 orb start、brew services list、ls -l 目标路径）；不要原样重发刚才已经失败的命令。
+- iZSH 捕获的 stdout/stderr 是判断失败原因的第一手证据。优先引用其中具体的错误信息，不要仅根据退出码猜测；输出为空或没有捕获时再依据其他上下文判断。
 - 用用户提问的语言回答（中文输入 → 中文解释）。解释要具体到原因，不要空话。
 - 不要在正文里输出 markdown 代码围栏或命令文本；命令由 suggest_command 承载。`;
 
@@ -55,8 +56,15 @@ export function buildUserPrompt(ctx: ShellContext): string {
       ),
     );
   }
+  if (ctx.capture !== null) {
+    parts.push(section("iZSH 命令 ID", ctx.capture.id));
+    parts.push(section("执行耗时", `${ctx.capture.durationMs}ms`));
+    parts.push(section("stdout（最多保留末尾 32 KiB）", ctx.capture.stdout.text));
+    parts.push(section("stderr（最多保留末尾 32 KiB）", ctx.capture.stderr.text));
+  } else if (ctx.trigger !== "nl") {
+    parts.push("（本次没有可匹配的 iZSH 输出，分析时不要假装看到了命令输出。）");
+  }
   parts.push(section("环境变量", ctx.env));
-  parts.push("（注意：本产品的 MVP 版本不提供命令输出内容，只有命令本身、退出码与以上上下文。）");
 
   return parts.join("\n\n");
 }

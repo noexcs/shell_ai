@@ -40,3 +40,28 @@ export function redactEnv(env: string, mode: EnvMode): RedactionReport {
 
   return { text: lines.join("\n"), masked };
 }
+
+/** Best-effort masking for secrets that commands print in otherwise useful output. */
+export function redactOutput(output: string, mode: EnvMode): RedactionReport {
+  if (mode === "full") return { text: output, masked: [] };
+  if (mode === "none") return { text: "", masked: [] };
+
+  const masked: string[] = [];
+  let text = output.replace(
+    /(\b[A-Za-z_][A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Za-z0-9_]*\s*[=:]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s\n]+)/gi,
+    (match, prefix: string) => {
+      masked.push("secret assignment");
+      return `${prefix}[redacted]`;
+    },
+  );
+  text = text.replace(/(\bAuthorization\s*:\s*(?:Bearer|Basic)\s+)[^\s]+/gi, (_match, prefix: string) => {
+    masked.push("authorization header");
+    return `${prefix}[redacted]`;
+  });
+  text = text.replace(/\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|AKIA[A-Z0-9]{16})\b/g, () => {
+    masked.push("token pattern");
+    return "[redacted]";
+  });
+
+  return { text, masked: [...new Set(masked)] };
+}
