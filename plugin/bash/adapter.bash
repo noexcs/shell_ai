@@ -52,6 +52,7 @@ _unstuck_adapter_history() {
   local -a lines=()
   while IFS= read -r line; do
     line=$(_unstuck_bash_strip_number "$line")
+    [[ $line == '#'* ]] && continue   # questions, not commands
     [[ -n $line ]] && lines+=("$line")
   done < <(history "$limit" 2>/dev/null)
   (( ${#lines[@]} )) && printf '%s\n' "${lines[@]}"
@@ -104,7 +105,17 @@ _unstuck_bash_prompt() {
     return $ret
   fi
   UNSTUCK_LAST_HISTCMD=$marker
-  _unstuck_on_prompt "$ret" "$(_unstuck_bash_last_command)"
+  local last
+  last=$(_unstuck_bash_last_command)
+  # bash expands and runs the line before any hook of ours can see it, and it
+  # eats `# …` as a comment, so the only trace is the history entry.  Answer it
+  # like a question; zsh intercepts the same input before it is ever submitted.
+  if [[ $last == '#'* ]] && _unstuck_explicit_question "$last"; then
+    _unstuck_ask nl "$UNSTUCK_QUESTION_BODY" "" 0
+    _unstuck_queue_pending
+    return $ret
+  fi
+  _unstuck_on_prompt "$ret" "$last"
   return $ret
 }
 

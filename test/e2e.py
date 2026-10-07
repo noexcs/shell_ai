@@ -39,6 +39,9 @@ SANDBOX = os.path.join(ROOT, "sandbox")
 LOG_DIR = os.path.join(ROOT, ".unstuck-e2e")
 PROMPT = "UNSTUCK> "
 AI_TIMEOUT = 30.0
+# A remote 27B endpoint occasionally needs ~60s; only the scenarios that
+# spend several calls on one conversation need the longer ceiling.
+SLOW_AI_TIMEOUT = 120.0
 
 
 def bash_binary() -> str | None:
@@ -54,38 +57,64 @@ def bash_binary() -> str | None:
             return candidate
     return None
 
-ANSI_CSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 ANSI_OSC = re.compile(r"\x1b\][^\x07]*\x07")
 
 
-def strip_ansi(text: str) -> str:
-    return ANSI_CSI.sub("", ANSI_OSC.sub("", text))
+CSI_AT = re.compile(r"\x1b\[([0-9;?]*)([a-zA-Z])")
 
 
 def render_stream(chunk: bytes) -> str:
     """Approximate what a terminal would display for a pty byte stream.
 
-    zsh mixes three things that a naive strip gets wrong:
-      * `\\r\\r\\n` as its line ending (not a redraw),
-      * bare `\\r` redraws of the current line,
-      * `\\x08` backspaces (ZLE echoes `e\\x08echo hi` while typing).
-    A carriage return means "cursor to column 0", so the last **non-empty**
-    \\r-segment is what stays visible; empty segments are the line-ending idiom.
+    Replaying the control characters is the whole point — zsh writes several
+    things a naive strip gets wrong:
+      * `\r\r\n` as its line ending (not a redraw),
+      * bare `\r` redraws of the current line (cursor to column 0),
+      * `\x08` when ZLE echoes a character it is about to rewrite,
+      * cursor moves (`ESC[17D`, `ESC[16C`) when only part of the line changed.
+        That is how a typed `? why …` becomes the `# why …` line that is
+        actually submitted, and dropping the escapes leaves text the user never
+        saw (`? why …#`).
+    Columns are counted one per character, which is wrong for wide glyphs but
+    harmless here: ZLE rewrites those lines from column 0.
     """
     lines = []
-    for line in strip_ansi(chunk.decode("utf-8", "replace")).split("\n"):
-        segments = [segment for segment in line.split("\r") if segment != ""]
-        line = segments[-1] if segments else ""
-        if "\x08" in line:
-            typed: list[str] = []
-            for char in line:
-                if char == "\x08":
-                    if typed:
-                        typed.pop()
-                else:
-                    typed.append(char)
-            line = "".join(typed)
-        lines.append(line)
+    for raw in ANSI_OSC.sub("", chunk.decode("utf-8", "replace")).split("\n"):
+        columns: list[str] = []
+        column = 0
+        index = 0
+        while index < len(raw):
+            char = raw[index]
+            if char == "\x1b":
+                match = CSI_AT.match(raw, index)
+                if match is None:
+                    index += 1
+                    continue
+                count, final = match.group(1), match.group(2)
+                step = int(count) if count.isdigit() else 1
+                if final == "D":
+                    column = max(0, column - step)
+                elif final == "C":
+                    column += step
+                index = match.end()
+                continue
+            if char == "\r":
+                column = 0
+                index += 1
+                continue
+            if char == "\x08":
+                column = max(0, column - 1)
+                index += 1
+                continue
+            while len(columns) < column:
+                columns.append(" ")
+            if column < len(columns):
+                columns[column] = char
+            else:
+                columns.append(char)
+            column += 1
+            index += 1
+        lines.append("".join(columns))
     return "\n".join(lines)
 
 
@@ -398,6 +427,73 @@ def scenario_a6(scenario: Scenario, session: ShellSession, mark: int) -> None:
         scenario.check("the provider key value never appears", real_secret not in text)
 
 
+# --------------------------------------------------------------------------- A7
+
+def scenario_a7(scenario: Scenario, session: ShellSession, mark: int) -> None:
+    """Questions stay in the prompt line and never run as commands.
+
+    zsh cannot keep a buffer on screen *and* hand it to the prompt hook, so an
+    intercepted question is re-submitted as `# <question>`: zsh echoes the line,
+    it lands in history, and it executes as a no-op.  `#` and `?` are also the
+    explicit triggers — which is what makes an English question possible at all,
+    since the heuristic only recognises non-ASCII input.
+    """
+    if session.shell != "zsh":
+        scenario.check("bash has no pre-execution hook (see A3)", True)
+        return
+
+    def ask(text: str) -> tuple[str, str]:
+        """Send one question and wait for the answer.
+
+        Waiting for a prompt is not enough: the question line redraws the prompt
+        token itself.  The latency footer is what marks the panel as finished.
+        The prompt that follows pre-fills the suggestion, so it is dropped again
+        before the next send — otherwise the next line is typed into it.
+        """
+        before = session.mark()
+        session.send(text + "\r")
+        panel = session.wait_for("✦ Unstuck", SLOW_AI_TIMEOUT, before)
+        answered = session.wait_for(r"·\s*\d+\.\d+s", SLOW_AI_TIMEOUT, before)
+        session._pump(0.6)
+        out = session.since(before)
+        scenario.check(f"`{text[:12]}` was answered", answered)
+        session.send("\x03")
+        session._pump(0.6)
+        return panel, out
+
+    phrase = "帮我找出当前目录最大的10个文件"
+    panel, text = ask(phrase)
+    scenario.check("heuristic question got a panel", panel)
+    scenario.check("heuristic question was not executed", "command not found" not in text)
+    scenario.check("heuristic question kept as a comment line", f"# {phrase}" in text)
+
+    explicit = "why did the last command fail"
+    for prefix in ["#", "?"]:
+        panel, text = ask(f"{prefix} {explicit}")
+        scenario.check(f"`{prefix}` question got a panel", panel)
+        scenario.check(f"`{prefix}` question was not executed", "command not found" not in text)
+        scenario.check(f"`{prefix}` question kept as a comment line", f"# {explicit}" in text)
+
+    scenario.check("all three questions logged as nl", session.log().count("trigger=nl") == 3)
+
+    recall = session.mark()
+    session.send("fc -ln -8\r")
+    session._pump(1.5)
+    recalled = session.since(recall)
+    scenario.check("questions are recallable from history", f"# {phrase}" in recalled
+                   and f"# {explicit}" in recalled)
+
+    dump = session.mark()
+    session.send("_unstuck_context nl x x 0 | ${UNSTUCK_CMD[@]} debug --print-context\r")
+    session._pump(6.0)
+    context = session.since(dump)
+    history_section = context.split("最近命令历史", 1)[-1].split("\n##", 1)[0]
+    scenario.check(
+        "questions stay out of the model's history",
+        f"# {phrase}" not in history_section and f"# {explicit}" not in history_section,
+    )
+
+
 SCENARIOS = {
     "A1": ("normal commands stay stock and never call the LLM", scenario_a1),
     "A2": ("command not found → panel + suggestion", scenario_a2),
@@ -405,6 +501,7 @@ SCENARIOS = {
     "A4": ("non-zero exit → panel before the next prompt", scenario_a4),
     "A5": ("no execution without Enter", scenario_a5),
     "A6": ("BYOK hygiene: secrets in the environment never leave the machine", scenario_a6),
+    "A7": ("questions stay visible, become history, never run", scenario_a7),
 }
 
 

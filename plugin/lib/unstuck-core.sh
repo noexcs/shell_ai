@@ -164,11 +164,32 @@ _unstuck_looks_like_natural_language() {
   return 0
 }
 
+# The explicit trigger: a leading run of `?`/`#` markers followed by text.
+# `? 为什么失败` / `# why did this fail` are questions, never commands.
+# A bare marker (or only blanks after it) is not a question — `#` stays a
+# comment and `?` stays a glob — so it is left to the shell.
+# Sets UNSTUCK_QUESTION_BODY (the question with the marker stripped) and never
+# forks: this runs on every Enter.
+_unstuck_explicit_question() {
+  local line=$1 rest
+  UNSTUCK_QUESTION_BODY=""
+  case $line in
+    '?'* | '#'*) ;;
+    *) return 1 ;;
+  esac
+  rest=${line#"${line%%[!?#]*}"}          # drop the marker run
+  rest=${rest#"${rest%%[![:space:]]*}"}   # drop the blanks after it
+  [[ -n $rest ]] || return 1
+  UNSTUCK_QUESTION_BODY=$rest
+  return 0
+}
+
 # Natural language typed at the prompt (shells with a pre-execution hook).
 # Deliberately conservative: everything that is not clearly a question goes to
 # the shell untouched.
 _unstuck_should_intercept_line() {
   [[ -n ${UNSTUCK_DISABLE:-} ]] && return 1
+  _unstuck_explicit_question "$1" && return 0
   _unstuck_looks_like_natural_language "$1"
 }
 
@@ -182,11 +203,11 @@ _unstuck_on_not_found() {
     return 127
   fi
 
-  if _unstuck_looks_like_natural_language "$line"; then
+  if _unstuck_should_intercept_line "$line"; then
     # A question, not a mistyped command: skip the shell's own error line and
     # defer it to the prompt hook, so the parent shell owns delivery.
     printf '%s' "nl" > "$UNSTUCK_CNF_TRIGGER"
-    printf '%s' "$line" > "$UNSTUCK_CNF_QUERY"
+    printf '%s' "${UNSTUCK_QUESTION_BODY:-$line}" > "$UNSTUCK_CNF_QUERY"
     return 127
   fi
 

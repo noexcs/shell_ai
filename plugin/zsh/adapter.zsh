@@ -32,7 +32,10 @@ _unstuck_adapter_history() {
   # A short array would make ${arr[-limit,-1]} empty in zsh — clamp explicitly.
   (( ${#keys} > limit )) && keys=("${keys[-${limit},-1]}")
   local key
-  for key in "${keys[@]}"; do recent+=("${history[$key]}"); done
+  for key in "${keys[@]}"; do
+    [[ ${history[$key]} == '#'* ]] && continue   # questions, not commands
+    recent+=("${history[$key]}")
+  done
 
   # A fresh shell's $history is empty (zsh does not preload the history file).
   if (( ${#recent} < limit )) && [[ -r ${HISTFILE-} ]]; then
@@ -40,6 +43,7 @@ _unstuck_adapter_history() {
     local -a past=()
     for line in "${(@f)$(command tail -n "$limit" -- "$HISTFILE" 2>/dev/null)}"; do
       [[ $line == ': '*';'* ]] && line=${line#*;}   # tolerate extended history format
+      [[ $line == '#'* ]] && continue                # questions, not commands
       [[ -n $line ]] && past+=("$line")
     done
     recent=("${past[@]}" "${recent[@]}")
@@ -104,8 +108,22 @@ _unstuck_zsh_accept_line() {
     fi
     return 0
   fi
-  typeset -g UNSTUCK_QUERY=$BUFFER
-  BUFFER="" CURSOR=0
+  # The explicit `? …` / `# …` trigger already carries the question without its
+  # marker; the heuristic path asks with the line as typed.
+  local query=${UNSTUCK_QUESTION_BODY:-$BUFFER}
+  typeset -g UNSTUCK_QUERY=$query
+
+  # Keep the question on screen instead of erasing it: re-submit it as a comment
+  # so zsh echoes the line, records it in history, and executes nothing.  Only a
+  # single-line buffer can be commented out — a `#` would leave the rest of it
+  # runnable — and without interactive_comments a `#` line is a command, so both
+  # of those fall back to clearing the buffer.
+  if _unstuck_adapter_supports_comment && [[ $query != *$'\n'* ]]; then
+    BUFFER="# $query"
+    CURSOR=${#BUFFER}
+  else
+    BUFFER="" CURSOR=0
+  fi
   zle .accept-line
 }
 
